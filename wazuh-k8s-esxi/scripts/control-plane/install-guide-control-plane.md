@@ -6,7 +6,7 @@
 
 | Параметр | Значение |
 |----------|----------|
-| ОС | Ubuntu 22.04 LTS |
+| ОС | РЕД ОС 8 / Astra Linux / Ubuntu 22.04 |
 | vCPU | **4** (reservation ≥ 2 GHz) |
 | RAM | **8 GiB** (full reservation) |
 | `sda` | 100 GiB thin — ОС |
@@ -29,14 +29,16 @@
 ### 1. Подготовка ОС
 
 ```bash
-sudo apt update && sudo apt -y upgrade
-# Заполнить config/cluster.env: CP_IP, POD_CIDR, пароли и т.д.
+# РЕД ОС:   sudo dnf -y update
+# Astra:    sudo apt-get update && sudo apt-get -y upgrade
+# Заполнить config/cluster.env: CP_IP, POD_CIDR, пароли, TARGET_OS=redos|astra
 sudo mkdir -p /etc/wazuh-k8s
 sudo cp config/cluster.env /etc/wazuh-k8s/cluster.env
 export WAZUH_K8S_ENV=/etc/wazuh-k8s/cluster.env
 ```
 
-Пропишите все хосты кластера в DNS или `/etc/hosts`.
+На пустой ОС дальше ничего ставить вручную не нужно — скрипт сделает bootstrap.  
+Пропишите все хосты кластера в DNS или `/etc/hosts`. Подробности: `docs/os-redos-astra.md`.
 
 ### 2. Запуск установки
 

@@ -6,7 +6,7 @@
 
 | Параметр | Значение |
 |----------|----------|
-| ОС | Ubuntu 22.04 LTS |
+| ОС | РЕД ОС 8 / Astra Linux / Ubuntu 22.04 |
 | vCPU | **8** |
 | RAM | **16 GiB** (reservation) |
 | `sda` | 100 GiB thin — ОС |

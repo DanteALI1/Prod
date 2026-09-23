@@ -16,15 +16,15 @@ for arg in "$@"; do
 done
 
 require_root_or_kube() {
-  if [[ "${EUID}" -ne 0 && ! -f "${KUBECONFIG:-}" && ! -f /etc/kubernetes/admin.conf && ! -f "${HOME}/.kube/config" ]]; then
-    die "Need root or valid kubeconfig"
-  fi
   if [[ -z "${KUBECONFIG:-}" ]]; then
     if [[ -f /etc/kubernetes/admin.conf ]]; then
       export KUBECONFIG=/etc/kubernetes/admin.conf
     elif [[ -f "${HOME}/.kube/config" ]]; then
       export KUBECONFIG="${HOME}/.kube/config"
     fi
+  fi
+  if [[ ! -f "${KUBECONFIG:-/dev/null}" ]]; then
+    die "Need valid kubeconfig (set KUBECONFIG or run on control-plane)"
   fi
   require_cmd kubectl
 }
@@ -34,20 +34,27 @@ preflight() {
   local idx_count
   idx_count="$(kubectl get nodes -l wazuh.role=indexer --no-headers 2>/dev/null | wc -l | tr -d ' ')"
   if (( idx_count < 3 )); then
-    die "Need 3 nodes labeled wazuh.role=indexer (have ${idx_count}). Label/taint indexer nodes first."
+    die "Need 3 nodes labeled wazuh.role=indexer (have ${idx_count}). Run scripts/common/label-nodes.sh first."
   fi
   local wrk
   wrk="$(kubectl get nodes -l wazuh.role=general --no-headers 2>/dev/null | wc -l | tr -d ' ')"
   if (( wrk < 1 )); then
-    warn "No nodes with wazuh.role=general — labeling all non-indexer workers"
-    kubectl get nodes -o name | while read -r n; do
+    warn "No nodes with wazuh.role=general — labeling non-indexer workers"
+    local cp_name
+    cp_name="$(kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    while read -r n; do
       n="${n#node/}"
-      if ! kubectl get node "${n}" -o jsonpath='{.metadata.labels.wazuh\.role}' 2>/dev/null | grep -q indexer; then
-        if [[ "${n}" != "$(kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" ]]; then
-          kubectl label node "${n}" wazuh.role=general --overwrite || true
-        fi
+      [[ -z "${n}" ]] && continue
+      local role
+      role="$(kubectl get node "${n}" -o jsonpath='{.metadata.labels.wazuh\.role}' 2>/dev/null || true)"
+      if [[ "${role}" == "indexer" ]]; then
+        continue
       fi
-    done
+      if [[ -n "${cp_name}" && "${n}" == "${cp_name}" ]]; then
+        continue
+      fi
+      kubectl label node "${n}" wazuh.role=general --overwrite || true
+    done < <(kubectl get nodes -o name)
   fi
   kubectl get ns "${WAZUH_NAMESPACE}" >/dev/null 2>&1 || kubectl create ns "${WAZUH_NAMESPACE}"
   generate_cluster_key
@@ -61,9 +68,19 @@ ensure_helm() {
   require_cmd helm
 }
 
+ensure_git() {
+  if ! command -v git >/dev/null 2>&1; then
+    detect_os
+    # shellcheck disable=SC2086
+    install_packages git || warn "git not installed — official repo clone will be skipped"
+  fi
+}
+
 apply_storage() {
-  log "Applying StorageClass / PV manifests"
-  kubectl apply -f "${ROOT_DIR}/manifests/storage/"
+  log "Applying StorageClass / PV manifests (hostnames from cluster.env)"
+  local out
+  out="$(render_storage_pvs)"
+  kubectl apply -f "${out}/"
   if [[ -d "${ROOT_DIR}/manifests/network" ]]; then
     log "Applying NetworkPolicies (review agent CIDR before production)"
     kubectl apply -f "${ROOT_DIR}/manifests/network/" || warn "NetworkPolicy apply failed (CNI may lack support)"
@@ -87,7 +104,7 @@ create_secrets() {
 render_and_apply_manifests() {
   local out="${ROOT_DIR}/manifests/.rendered"
   mkdir -p "${out}"
-  # shellcheck disable=SC2016
+  local f
   for f in \
     "${ROOT_DIR}/manifests/indexer/statefulset-indexer.yaml" \
     "${ROOT_DIR}/manifests/manager/statefulset-manager-master.yaml" \
@@ -109,14 +126,16 @@ render_and_apply_manifests() {
 }
 
 deploy_via_official_repo() {
-  # Prefer official wazuh-kubernetes checkout + our values overlay when network allows
+  ensure_git
   local work="/var/tmp/wazuh-kubernetes"
-  if [[ ! -d "${work}/.git" ]]; then
-    git clone --depth 1 --branch "${WAZUH_K8S_TAG}" "${WAZUH_K8S_GIT}" "${work}" \
-      || warn "Clone failed — falling back to local manifests only"
+  if command -v git >/dev/null 2>&1; then
+    if [[ ! -d "${work}/.git" ]]; then
+      git clone --depth 1 --branch "${WAZUH_K8S_TAG}" "${WAZUH_K8S_GIT}" "${work}" \
+        || warn "Clone failed — falling back to local manifests only"
+    fi
   fi
   if [[ -d "${work}/envs/single-node" ]] || [[ -d "${work}/wazuh" ]]; then
-    log "Official repo present at ${work} — apply local hardened manifests (StatefulSets) which pin nodeSelector/taints"
+    log "Official repo present at ${work} — applying local hardened manifests (nodeSelector/taints)"
   fi
   apply_storage
   create_secrets
@@ -135,23 +154,26 @@ wait_ready() {
 backup_manager_config() {
   local dest="${1:-/var/backups/wazuh}"
   mkdir -p "${dest}"
-  local ts file
+  local ts file pod
   ts="$(date +%Y%m%d-%H%M%S)"
   file="${dest}/wazuh-manager-conf-${ts}.tgz"
-  local pod
   pod="$(kubectl -n "${WAZUH_NAMESPACE}" get pods -l app=wazuh-manager,node-type=master -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-  [[ -n "${pod}" ]] || pod="$(kubectl -n "${WAZUH_NAMESPACE}" get pods -o name | grep manager-master | head -1 | cut -d/ -f2)"
-  [[ -n "${pod}" ]] || die "Manager master pod not found"
-  kubectl -n "${WAZUH_NAMESPACE}" exec "${pod}" -- \
-    tar czf - /var/ossec/etc/rules /var/ossec/etc/decoders /var/ossec/etc/shared /var/ossec/etc/ossec.conf \
-    >/tmp/_wazuh_bk.tgz 2>/dev/null || \
-  kubectl -n "${WAZUH_NAMESPACE}" exec "${pod}" -- \
-    sh -c 'tar czf - /var/ossec/etc/rules /var/ossec/etc/decoders /var/ossec/etc/shared /var/ossec/etc/ossec.conf' \
-    >"${file}"
-  if [[ -f /tmp/_wazuh_bk.tgz ]]; then
-    mv /tmp/_wazuh_bk.tgz "${file}"
+  if [[ -z "${pod}" ]]; then
+    pod="$(kubectl -n "${WAZUH_NAMESPACE}" get pods -o name 2>/dev/null | grep manager-master | head -1 | cut -d/ -f2 || true)"
   fi
-  log "Backup written: ${file}"
+  [[ -n "${pod}" ]] || die "Manager master pod not found"
+  if kubectl -n "${WAZUH_NAMESPACE}" exec "${pod}" -- \
+      tar czf - -C / var/ossec/etc/rules var/ossec/etc/decoders var/ossec/etc/shared var/ossec/etc/ossec.conf \
+      >"${file}" 2>/tmp/wazuh-bk.err; then
+    log "Backup written: ${file}"
+  else
+    # Paths inside image may differ — try absolute with ignore-failed
+    kubectl -n "${WAZUH_NAMESPACE}" exec "${pod}" -- \
+      sh -c 'tar czf - /var/ossec/etc/rules /var/ossec/etc/decoders /var/ossec/etc/shared /var/ossec/etc/ossec.conf 2>/dev/null' \
+      >"${file}" || die "Backup failed: $(cat /tmp/wazuh-bk.err 2>/dev/null || true)"
+    log "Backup written: ${file}"
+  fi
+  rm -f /tmp/wazuh-bk.err
 }
 
 # --- main ---

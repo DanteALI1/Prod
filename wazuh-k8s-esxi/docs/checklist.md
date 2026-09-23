@@ -5,6 +5,8 @@
 ## A. Инфраструктура ESXi / ВМ
 
 - [ ] 6 ВМ созданы по таблице README (1 CP + 2 worker + 3 indexer)
+- [ ] ОС: РЕД ОС 8 **или** Astra Linux (или Ubuntu 22.04) на всех узлах одного кластера
+- [ ] На пустых серверах скрипты отработали bootstrap (curl/containerd/kubeadm)
 - [ ] Indexer anti-affinity: разные ESXi hosts
 - [ ] RAM reservation на Indexer = 32 GiB; data disk Thick Eager Zeroed 2 TiB
 - [ ] `/etc/hosts` или DNS резолвит все узлы

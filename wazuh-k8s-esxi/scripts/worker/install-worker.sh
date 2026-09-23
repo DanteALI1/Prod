@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Idempotent install: Kubernetes worker node for Wazuh Manager/Dashboard
+# Target OS: RED OS 8 | Astra Linux | Ubuntu 22.04 — bare metal / empty VM
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,55 +12,30 @@ require_root
 log "=== Wazuh K8s: Worker install on $(hostname) ==="
 
 preflight() {
-  check_ubuntu_2204
+  check_supported_os
+  bootstrap_host_tools
+  configure_selinux
   check_cpu "${MIN_CPU_WORKER}"
   check_ram_gb "${MIN_RAM_GB_WORKER}"
   check_disk_free / "${MIN_DISK_GB_OS}"
-  [[ -n "${KUBEADM_TOKEN}" ]] || die "KUBEADM_TOKEN is empty — set in cluster.env"
-  [[ -n "${KUBEADM_HASH}" ]] || die "KUBEADM_HASH is empty — set in cluster.env"
+  [[ -n "${KUBEADM_TOKEN:-}" ]] || die "KUBEADM_TOKEN is empty — set in cluster.env after CP install"
+  [[ -n "${KUBEADM_HASH:-}" ]] || die "KUBEADM_HASH is empty — set in cluster.env (sha256:...)"
+  normalize_kubeadm_hash
   check_port_reachable "${CP_IP}" 6443 || die "Cannot reach control-plane ${CP_IP}:6443"
 }
 
 setup_disks() {
-  install_packages lvm2 xfsprogs e2fsprogs curl apt-transport-https ca-certificates gnupg jq
+  local pkgs
+  pkgs="$(resolve_pkg_list lvm2 xfsprogs e2fsprogs)"
+  # shellcheck disable=SC2086
+  install_packages ${pkgs}
   disable_swap
   ensure_kernel_modules
   setup_lvm_mount "${CONTAINER_DISK}" /var/lib/containerd vg_container lv_containerd ext4 "defaults,noatime"
-  check_disk_free /var/lib/containerd 80
-}
-
-install_containerd() {
-  if already_done containerd; then
-    systemctl enable --now containerd
-    return 0
+  if [[ -d /var/lib/containerd ]]; then
+    check_disk_free /var/lib/containerd 80
   fi
-  install_packages containerd
-  mkdir -p /etc/containerd
-  containerd config default >/etc/containerd/config.toml
-  sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-  systemctl enable --now containerd
-  mark_done containerd
-}
-
-install_k8s_packages() {
-  if already_done k8s-pkgs; then
-    return 0
-  fi
-  local ver_minor
-  ver_minor="$(echo "${K8S_VERSION}" | cut -d. -f1,2)"
-  mkdir -p /etc/apt/keyrings
-  if [[ ! -f /etc/apt/keyrings/kubernetes-apt-keyring.gpg ]]; then
-    curl -fsSL "https://pkgs.k8s.io/core:/stable:/v${ver_minor}/deb/Release.key" \
-      | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-  fi
-  echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v${ver_minor}/deb/ /" \
-    >/etc/apt/sources.list.d/kubernetes.list
-  idempotent_apt_update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    "kubelet=${K8S_VERSION}" "kubeadm=${K8S_VERSION}" "kubectl=${K8S_VERSION}"
-  apt-mark hold kubelet kubeadm kubectl
-  systemctl enable --now kubelet
-  mark_done k8s-pkgs
+  open_firewall_ports worker
 }
 
 kubeadm_join() {
@@ -90,9 +66,9 @@ label_hint() {
 
 preflight
 setup_disks
-install_containerd
-install_k8s_packages
+install_containerd_runtime
+install_kubernetes_pkgs
 kubeadm_join
 prepare_manager_dirs
 label_hint
-log "Worker install finished — label node from CP if needed"
+log "Worker install finished — label node from CP if needed (OS=${OS_ID})"

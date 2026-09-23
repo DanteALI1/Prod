@@ -1,6 +1,6 @@
 # Разметка дисков (LVM) по ролям ВМ
 
-Целевая ОС: **Ubuntu 22.04 LTS**. Swap: **отключён** на всех K8s-нодах (`SWAP_ENABLED=false`) — требование Kubernetes; для OpenSearch swap вреден (latency).
+Целевые ОС: **РЕД ОС 8**, **Astra Linux**, Ubuntu 22.04. Разметка дисков одинаковая. Swap: **отключён** на всех K8s-нодах (`SWAP_ENABLED=false`) — требование Kubernetes; для OpenSearch swap вреден (latency).
 
 ## Общие правила
 
@@ -19,7 +19,7 @@
 
 | Диск vSphere | Размер | Provisioning | LVM | Mount |
 |--------------|--------|--------------|-----|-------|
-| `sda` | 100 GiB | Thin | стандартный Ubuntu (root + optional `/boot`) | `/` |
+| `sda` | 100 GiB | Thin | стандартный root ОС (РЕД ОС / Astra / Ubuntu) | `/` |
 | `sdb` | 100 GiB | Thick Lazy | VG `vg_container` LV `lv_containerd` | `/var/lib/containerd` |
 | `sdc` (опц.) | 50 GiB | Thin | VG `vg_logs` LV `lv_logs` | `/var/log` |
 

@@ -108,7 +108,11 @@ S_{node} \approx S_{online90} / 3 \approx 5.0 / 3 \approx \mathbf{1.67\ TiB}
 | k3s | Не рекомендуем: упрощённый datastore/networking хуже стыкуется с тяжёлым OpenSearch StatefulSet и local disks |
 
 - **Версия K8s:** `1.30.x` (проверена экосистемой Wazuh 4.9.x; перед апгрейдом сверяйте [wazuh-kubernetes](https://github.com/wazuh/wazuh-kubernetes) releases).
-- **ОС:** **Ubuntu 22.04 LTS** — LTS до 2027, отличная поддержка containerd/kubeadm, совпадает с большинством playbook ESXi/SecOps. Rocky 8/9 допустим, но все скрипты пакета заточены под Ubuntu 22.04.
+- **ОС ВМ (равнозначный sizing):**
+  - **РЕД ОС 8** — основной RPM-контур (dnf, SELinux permissive на этапе внедрения, containerd из официальных бинарников).
+  - **Astra Linux** — основной DEB-контур (apt, kubeadm из pkgs.k8s.io deb).
+  - Ubuntu 22.04 — по-прежнему поддерживается тем же пакетом скриптов.
+  - Ресурсы ВМ/подов **не зависят** от выбора РЕД ОС vs Astra — см. `docs/pods-resources-simple.md` и `docs/os-redos-astra.md`.
 - **CNI:** **Calico** (по умолчанию) — предсказуемые NetworkPolicy. **Cilium** — если нужны Hubble/L7 policy.
 
 ## 5. Схема ВМ (роль → количество)
@@ -171,7 +175,7 @@ OpenSearch heap обычно **≤50% RAM и ≤32 GiB**. При 32 GiB RAM: hea
 ## 8. Порядок развёртывания (high-level)
 
 1. Создать ВМ в vSphere по таблице §6, anti-affinity для Indexer.
-2. На всех: базовый Ubuntu 22.04, DNS/`/etc/hosts`, скопировать `config/cluster.env`.
+2. На всех: чистая РЕД ОС 8 / Astra / Ubuntu 22.04, DNS/`/etc/hosts`, скопировать `config/cluster.env`.
 3. `install-control-plane.sh` на `k8s-cp-01`.
 4. `install-worker.sh` на worker-01/02.
 5. `install-indexer.sh` на indexer-01/02/03 (join + labels/taints + disk).

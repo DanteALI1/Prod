@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Idempotent install: Kubernetes control-plane (kubeadm) for Wazuh package
+# Target OS: RED OS 8 | Astra Linux | Ubuntu 22.04 — bare metal / empty VM
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,66 +12,36 @@ require_root
 log "=== Wazuh K8s: Control-Plane install on $(hostname) ==="
 
 preflight() {
-  check_ubuntu_2204
+  check_supported_os
+  bootstrap_host_tools
+  configure_selinux
   check_cpu "${MIN_CPU_CP}"
   check_ram_gb "${MIN_RAM_GB_CP}"
   check_disk_free / "${MIN_DISK_GB_OS}"
-  for p in 6443 10250 2379 2380; do
-    check_port_free "${p}" || true
-  done
-  # 6443 must be free before first init
-  if ss -lnt | grep -q ':6443'; then
-    if [[ -f /etc/kubernetes/admin.conf ]]; then
-      log "API already listening — assuming control-plane exists"
-    else
-      die "Port 6443 in use but admin.conf missing"
+  assert_port_free_or_k8s 6443
+  for p in 10250 2379 2380; do
+    if ! check_port_free "${p}"; then
+      if [[ -f /etc/kubernetes/admin.conf ]]; then
+        warn "Port ${p} in use (OK if control-plane already running)"
+      else
+        die "Port ${p} is already in use"
+      fi
     fi
-  fi
+  done
 }
 
 setup_disks() {
-  install_packages lvm2 xfsprogs e2fsprogs curl apt-transport-https ca-certificates gnupg lsb-release jq
+  local pkgs
+  pkgs="$(resolve_pkg_list lvm2 xfsprogs e2fsprogs)"
+  # shellcheck disable=SC2086
+  install_packages ${pkgs}
   disable_swap
   ensure_kernel_modules
   setup_lvm_mount "${CONTAINER_DISK}" /var/lib/containerd vg_container lv_containerd ext4 "defaults,noatime"
-  check_disk_free /var/lib/containerd "${MIN_DISK_GB_CONTAINER}"
-}
-
-install_containerd() {
-  if already_done containerd; then
-    log "containerd stamp present — skip install"
-    systemctl enable --now containerd
-    return 0
+  if [[ -d /var/lib/containerd ]]; then
+    check_disk_free /var/lib/containerd "${MIN_DISK_GB_CONTAINER}"
   fi
-  install_packages containerd
-  mkdir -p /etc/containerd
-  containerd config default >/etc/containerd/config.toml
-  sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-  systemctl enable --now containerd
-  mark_done containerd
-}
-
-install_k8s_packages() {
-  if already_done k8s-pkgs; then
-    log "k8s packages stamp present"
-    return 0
-  fi
-  # Kubernetes apt repo (pkgs.k8s.io)
-  local ver_minor
-  ver_minor="$(echo "${K8S_VERSION}" | cut -d. -f1,2)"
-  mkdir -p /etc/apt/keyrings
-  if [[ ! -f /etc/apt/keyrings/kubernetes-apt-keyring.gpg ]]; then
-    curl -fsSL "https://pkgs.k8s.io/core:/stable:/v${ver_minor}/deb/Release.key" \
-      | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-  fi
-  echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v${ver_minor}/deb/ /" \
-    >/etc/apt/sources.list.d/kubernetes.list
-  idempotent_apt_update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    "kubelet=${K8S_VERSION}" "kubeadm=${K8S_VERSION}" "kubectl=${K8S_VERSION}"
-  apt-mark hold kubelet kubeadm kubectl
-  systemctl enable --now kubelet
-  mark_done k8s-pkgs
+  open_firewall_ports control-plane
 }
 
 kubeadm_init() {
@@ -81,7 +52,7 @@ kubeadm_init() {
   cat >/tmp/kubeadm-config.yaml <<EOF
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
-kubernetesVersion: v$(echo "${K8S_VERSION}" | cut -d- -f1)
+kubernetesVersion: v$(_k8s_semver)
 controlPlaneEndpoint: "${CONTROL_PLANE_ENDPOINT}"
 networking:
   podSubnet: "${POD_CIDR}"
@@ -129,7 +100,6 @@ install_cni() {
       kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.1/manifests/calico.yaml
       ;;
     cilium)
-      install_packages helm || true
       if ! command -v helm >/dev/null; then
         curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
       fi
@@ -155,18 +125,27 @@ create_wazuh_ns() {
 print_join() {
   export KUBECONFIG=/etc/kubernetes/admin.conf
   log "===== SAVE THIS JOIN COMMAND INTO cluster.env (TOKEN + HASH) ====="
-  kubeadm token create --print-join-command | tee -a "${LOG_FILE}"
+  local join_cmd
+  join_cmd="$(kubeadm token create --print-join-command)"
+  echo "${join_cmd}" | tee -a "${LOG_FILE}"
+  # Helper: extract token and hash for cluster.env
+  local token hash
+  token="$(echo "${join_cmd}" | awk '{for(i=1;i<=NF;i++) if($i=="--token") print $(i+1)}')"
+  hash="$(echo "${join_cmd}" | awk '{for(i=1;i<=NF;i++) if($i=="--discovery-token-ca-cert-hash") print $(i+1)}')"
+  log "Suggested cluster.env lines:"
+  log "  KUBEADM_TOKEN=${token}"
+  log "  KUBEADM_HASH=${hash}"
   log "================================================================="
 }
 
 # --- main ---
 preflight
 setup_disks
-install_containerd
-install_k8s_packages
+install_containerd_runtime
+install_kubernetes_pkgs
 kubeadm_init
 setup_kubeconfig
 install_cni
 create_wazuh_ns
 print_join
-log "Control-plane install finished successfully"
+log "Control-plane install finished successfully (OS=${OS_ID})"

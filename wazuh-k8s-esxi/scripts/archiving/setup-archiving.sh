@@ -12,6 +12,11 @@ if [[ -z "${KUBECONFIG:-}" && -f /etc/kubernetes/admin.conf ]]; then
   export KUBECONFIG=/etc/kubernetes/admin.conf
 fi
 require_cmd kubectl
+if ! command -v jq >/dev/null 2>&1; then
+  detect_os
+  # shellcheck disable=SC2086
+  install_packages $(resolve_pkg_list jq) || die "jq required"
+fi
 require_cmd jq
 
 log "=== setup-archiving: ISM + snapshot repo ==="
@@ -19,13 +24,48 @@ log "=== setup-archiving: ISM + snapshot repo ==="
 INDEXER_POD="$(kubectl -n "${WAZUH_NAMESPACE}" get pods -l app=wazuh-indexer -o jsonpath='{.items[0].metadata.name}')"
 [[ -n "${INDEXER_POD}" ]] || die "No indexer pod found"
 
+# Body must be streamed into the pod (host paths are invisible to curl inside the container).
 curl_idx() {
   local method="$1" path="$2"
   shift 2
-  kubectl -n "${WAZUH_NAMESPACE}" exec "${INDEXER_POD}" -- \
-    curl -sk -u "${INDEXER_ADMIN_USER}:${INDEXER_ADMIN_PASSWORD}" \
-    -H "Content-Type: application/json" \
-    -X "${method}" "https://localhost:9200${path}" "$@"
+  local body_file="" own_tmp=false
+  local args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -d)
+        if [[ "${2:-}" == "@-" ]]; then
+          body_file="$(mktemp)"
+          cat >"${body_file}"
+          own_tmp=true
+          shift 2
+        elif [[ "${2:-}" == @* ]]; then
+          body_file="${2#@}"
+          shift 2
+        else
+          body_file="$(mktemp)"
+          printf '%s' "$2" >"${body_file}"
+          own_tmp=true
+          shift 2
+        fi
+        ;;
+      *)
+        args+=("$1"); shift ;;
+    esac
+  done
+  if [[ -n "${body_file}" ]]; then
+    [[ -f "${body_file}" ]] || die "curl_idx body file missing: ${body_file}"
+    kubectl -n "${WAZUH_NAMESPACE}" exec -i "${INDEXER_POD}" -- \
+      curl -sk -u "${INDEXER_ADMIN_USER}:${INDEXER_ADMIN_PASSWORD}" \
+      -H "Content-Type: application/json" \
+      -X "${method}" "https://localhost:9200${path}" -d @- "${args[@]+"${args[@]}"}" \
+      <"${body_file}"
+    [[ "${own_tmp}" == "true" ]] && rm -f "${body_file}"
+  else
+    kubectl -n "${WAZUH_NAMESPACE}" exec "${INDEXER_POD}" -- \
+      curl -sk -u "${INDEXER_ADMIN_USER}:${INDEXER_ADMIN_PASSWORD}" \
+      -H "Content-Type: application/json" \
+      -X "${method}" "https://localhost:9200${path}" "${args[@]+"${args[@]}"}"
+  fi
 }
 
 check_cluster_health() {
@@ -67,7 +107,6 @@ apply_ism_policy() {
   local policy_file="${ROOT_DIR}/config/ism-policy.json"
   [[ -f "${policy_file}" ]] || die "Missing ${policy_file}"
 
-  # Patch retention days from env into a temp policy
   local tmp
   tmp="$(mktemp)"
   jq --arg hot "${HOT_RETENTION_DAYS}d" \
@@ -102,8 +141,6 @@ apply_ism_policy() {
       | .policy.ism_template = [{index_patterns:["wazuh-alerts-*","wazuh-archives-*"], priority:100}]
      ' "${policy_file}" >"${tmp}"
 
-  # HOT_RETENTION_DAYS drives transition hot->warm; COLD_SNAPSHOT drives warm->archive
-  # Also align warm min age: use WARM_AFTER_DAYS as hot transition (same as HOT by default)
   log "Applying ISM policy wazuh-retention-90d (hot ${HOT_RETENTION_DAYS}d, archive ${COLD_SNAPSHOT_AFTER_DAYS}d)"
   curl_idx PUT "/_plugins/_ism/policies/wazuh-retention-90d" -d @"${tmp}"
   rm -f "${tmp}"
@@ -113,8 +150,9 @@ apply_ism_policy() {
 manual_snapshot_now() {
   local name="manual-$(date +%Y%m%d-%H%M%S)"
   log "Creating optional baseline snapshot ${name}"
-  curl_idx PUT "/_snapshot/${SNAPSHOT_REPO_NAME}/${name}?wait_for_completion=false" \
-    -d '{"indices":"wazuh-alerts-*,wazuh-archives-*","include_global_state":false}' || warn "manual snapshot request failed"
+  echo '{"indices":"wazuh-alerts-*,wazuh-archives-*","include_global_state":false}' \
+    | curl_idx PUT "/_snapshot/${SNAPSHOT_REPO_NAME}/${name}?wait_for_completion=false" -d @- \
+    || warn "manual snapshot request failed"
 }
 
 verify() {

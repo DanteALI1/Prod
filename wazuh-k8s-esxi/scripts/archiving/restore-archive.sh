@@ -11,6 +11,11 @@ if [[ -z "${KUBECONFIG:-}" && -f /etc/kubernetes/admin.conf ]]; then
   export KUBECONFIG=/etc/kubernetes/admin.conf
 fi
 require_cmd kubectl
+if ! command -v jq >/dev/null 2>&1; then
+  detect_os
+  # shellcheck disable=SC2086
+  install_packages $(resolve_pkg_list jq) || die "jq required"
+fi
 require_cmd jq
 
 usage() {
@@ -32,10 +37,44 @@ INDEXER_POD="$(kubectl -n "${WAZUH_NAMESPACE}" get pods -l app=wazuh-indexer -o 
 curl_idx() {
   local method="$1" path="$2"
   shift 2
-  kubectl -n "${WAZUH_NAMESPACE}" exec "${INDEXER_POD}" -- \
-    curl -sk -u "${INDEXER_ADMIN_USER}:${INDEXER_ADMIN_PASSWORD}" \
-    -H "Content-Type: application/json" \
-    -X "${method}" "https://localhost:9200${path}" "$@"
+  local body_file="" own_tmp=false
+  local args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -d)
+        if [[ "${2:-}" == "@-" ]]; then
+          body_file="$(mktemp)"
+          cat >"${body_file}"
+          own_tmp=true
+          shift 2
+        elif [[ "${2:-}" == @* ]]; then
+          body_file="${2#@}"
+          shift 2
+        else
+          body_file="$(mktemp)"
+          printf '%s' "$2" >"${body_file}"
+          own_tmp=true
+          shift 2
+        fi
+        ;;
+      *)
+        args+=("$1"); shift ;;
+    esac
+  done
+  if [[ -n "${body_file}" ]]; then
+    [[ -f "${body_file}" ]] || die "curl_idx body file missing: ${body_file}"
+    kubectl -n "${WAZUH_NAMESPACE}" exec -i "${INDEXER_POD}" -- \
+      curl -sk -u "${INDEXER_ADMIN_USER}:${INDEXER_ADMIN_PASSWORD}" \
+      -H "Content-Type: application/json" \
+      -X "${method}" "https://localhost:9200${path}" -d @- "${args[@]+"${args[@]}"}" \
+      <"${body_file}"
+    [[ "${own_tmp}" == "true" ]] && rm -f "${body_file}"
+  else
+    kubectl -n "${WAZUH_NAMESPACE}" exec "${INDEXER_POD}" -- \
+      curl -sk -u "${INDEXER_ADMIN_USER}:${INDEXER_ADMIN_PASSWORD}" \
+      -H "Content-Type: application/json" \
+      -X "${method}" "https://localhost:9200${path}" "${args[@]+"${args[@]}"}"
+  fi
 }
 
 ACTION=""

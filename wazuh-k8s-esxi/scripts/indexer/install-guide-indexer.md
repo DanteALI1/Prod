@@ -6,7 +6,7 @@
 
 | Параметр | Значение | Почему |
 |----------|----------|--------|
-| ОС | Ubuntu 22.04 LTS | Единый стандарт пакета |
+| ОС | РЕД ОС 8 / Astra Linux / Ubuntu 22.04 | Единый sizing; см. `docs/os-redos-astra.md` |
 | vCPU | **8** (reservation ≥ 4 GHz) | ~1000 EPS peak + merges |
 | RAM | **32 GiB** (**full reservation**) | Heap 16 GiB + page cache |
 | `sda` | 100 GiB thin | ОС |

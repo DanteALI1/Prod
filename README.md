@@ -2,4 +2,8 @@
 
 Production deployment package for **Wazuh on Kubernetes (VMware ESXi)**.
 
-→ See **[wazuh-k8s-esxi/README.md](wazuh-k8s-esxi/README.md)** for architecture, resource sizing (200 agents), install order, and scripts.
+Целевые ОС: **РЕД ОС 8**, **Astra Linux** (серверы с нуля).
+
+- Ресурсы по подам простым языком: [wazuh-k8s-esxi/docs/pods-resources-simple.md](wazuh-k8s-esxi/docs/pods-resources-simple.md)
+- Установка на РЕД ОС / Astra: [wazuh-k8s-esxi/docs/os-redos-astra.md](wazuh-k8s-esxi/docs/os-redos-astra.md)
+- Полный пакет: [wazuh-k8s-esxi/README.md](wazuh-k8s-esxi/README.md)

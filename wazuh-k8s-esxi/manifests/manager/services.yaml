@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-cluster
+  namespace: __NAMESPACE__
+  labels:
+    app: wazuh-manager
+spec:
+  clusterIP: None
+  ports:
+    - name: cluster
+      port: 1516
+      targetPort: 1516
+  selector:
+    app: wazuh-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-manager
+  namespace: __NAMESPACE__
+  labels:
+    app: wazuh-manager
+spec:
+  type: NodePort
+  ports:
+    - name: events
+      port: 1514
+      targetPort: 1514
+      nodePort: 31514
+    - name: enrollment
+      port: 1515
+      targetPort: 1515
+      nodePort: 31515
+    - name: api
+      port: 55000
+      targetPort: 55000
+      nodePort: 31550
+  selector:
+    app: wazuh-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-manager-master
+  namespace: __NAMESPACE__
+spec:
+  ports:
+    - name: api
+      port: 55000
+      targetPort: 55000
+  selector:
+    app: wazuh-manager
+    node-type: master

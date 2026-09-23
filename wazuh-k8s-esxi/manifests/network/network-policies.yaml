@@ -1,0 +1,91 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: wazuh-default-deny-ingress
+  namespace: wazuh
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agents-to-manager
+  namespace: wazuh
+spec:
+  podSelector:
+    matchLabels:
+      app: wazuh-manager
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 1514
+        - protocol: TCP
+          port: 1515
+      # Restrict to agent VLAN CIDR in production:
+      # from:
+      #   - ipBlock:
+      #       cidr: 10.20.0.0/16
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dashboard-to-backends
+  namespace: wazuh
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: ["wazuh-indexer", "wazuh-manager"]
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: wazuh-dashboard
+      ports:
+        - protocol: TCP
+          port: 9200
+        - protocol: TCP
+          port: 55000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-manager-to-indexer
+  namespace: wazuh
+spec:
+  podSelector:
+    matchLabels:
+      app: wazuh-indexer
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: wazuh-manager
+        - podSelector:
+            matchLabels:
+              app: wazuh-indexer
+      ports:
+        - protocol: TCP
+          port: 9200
+        - protocol: TCP
+          port: 9300
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-browser-to-dashboard
+  namespace: wazuh
+spec:
+  podSelector:
+    matchLabels:
+      app: wazuh-dashboard
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 5601

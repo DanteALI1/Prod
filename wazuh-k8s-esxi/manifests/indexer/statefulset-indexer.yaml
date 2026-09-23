@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-indexer
+  namespace: __NAMESPACE__
+  labels:
+    app: wazuh-indexer
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+    - name: transport
+      port: 9300
+      targetPort: 9300
+  selector:
+    app: wazuh-indexer
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wazuh-indexer
+  namespace: __NAMESPACE__
+  labels:
+    app: wazuh-indexer
+spec:
+  serviceName: wazuh-indexer
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: wazuh-indexer
+  template:
+    metadata:
+      labels:
+        app: wazuh-indexer
+    spec:
+      terminationGracePeriodSeconds: 120
+      nodeSelector:
+        wazuh.role: indexer
+      tolerations:
+        - key: wazuh-indexer
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+      initContainers:
+        - name: volume-mount-hack
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 1000:1000 /usr/share/wazuh-indexer/data"]
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: wazuh-indexer
+              mountPath: /usr/share/wazuh-indexer/data
+      containers:
+        - name: wazuh-indexer
+          image: wazuh/wazuh-indexer:__WAZUH_VERSION__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9200
+              name: http
+            - containerPort: 9300
+              name: transport
+          env:
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "-Xms16g -Xmx16g"
+            - name: BOOTSTRAP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: indexer-password
+            - name: DISABLE_INSTALL_DEMO_CONFIG
+              value: "true"
+          resources:
+            requests:
+              cpu: "4"
+              memory: 24Gi
+            limits:
+              cpu: "7"
+              memory: 30Gi
+          volumeMounts:
+            - name: wazuh-indexer
+              mountPath: /usr/share/wazuh-indexer/data
+            - name: indexer-config
+              mountPath: /usr/share/wazuh-indexer/opensearch.yml
+              subPath: opensearch.yml
+          readinessProbe:
+            tcpSocket:
+              port: 9200
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          livenessProbe:
+            tcpSocket:
+              port: 9200
+            initialDelaySeconds: 120
+            periodSeconds: 30
+      volumes:
+        - name: indexer-config
+          configMap:
+            name: wazuh-indexer-config
+  volumeClaimTemplates:
+    - metadata:
+        name: wazuh-indexer
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: wazuh-indexer-local
+        resources:
+          requests:
+            storage: 2Ti
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wazuh-indexer-config
+  namespace: __NAMESPACE__
+data:
+  opensearch.yml: |
+    cluster.name: wazuh-cluster
+    network.host: 0.0.0.0
+    http.port: 9200
+    transport.tcp.port: 9300
+    discovery.seed_hosts:
+      - wazuh-indexer-0.wazuh-indexer
+      - wazuh-indexer-1.wazuh-indexer
+      - wazuh-indexer-2.wazuh-indexer
+    cluster.initial_cluster_manager_nodes:
+      - wazuh-indexer-0
+      - wazuh-indexer-1
+      - wazuh-indexer-2
+    plugins.security.disabled: false
+    # Production: mount proper certs from secret (see docs/network-security.md)
+    plugins.security.ssl.http.enabled: true
+    plugins.security.ssl.transport.enabled: true
+    path.data: /usr/share/wazuh-indexer/data
+    path.repo: ["/mnt/wazuh-snapshots"]
+    node.store.allow_mmap: false
+    indices.query.bool.max_clause_count: 4096

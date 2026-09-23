@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wazuh-manager-worker
+  namespace: __NAMESPACE__
+  labels:
+    app: wazuh-manager
+    node-type: worker
+spec:
+  serviceName: wazuh-cluster
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wazuh-manager
+      node-type: worker
+  template:
+    metadata:
+      labels:
+        app: wazuh-manager
+        node-type: worker
+    spec:
+      nodeSelector:
+        wazuh.role: general
+      containers:
+        - name: wazuh-manager
+          image: wazuh/wazuh-manager:__WAZUH_VERSION__
+          ports:
+            - containerPort: 1514
+              name: events
+            - containerPort: 1515
+              name: enrollment
+            - containerPort: 1516
+              name: cluster
+          env:
+            - name: WAZUH_MANAGER_NAME
+              value: wazuh-manager-worker-0
+            - name: CLUSTER_NODE_TYPE
+              value: worker
+            - name: CLUSTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: cluster-key
+            - name: CLUSTER_MASTER_IP
+              value: wazuh-manager-master-0.wazuh-cluster
+            - name: INDEXER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: indexer-user
+            - name: INDEXER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: indexer-password
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          volumeMounts:
+            - name: manager-data
+              mountPath: /var/ossec/data
+          readinessProbe:
+            tcpSocket:
+              port: 1514
+            initialDelaySeconds: 45
+            periodSeconds: 15
+  volumeClaimTemplates:
+    - metadata:
+        name: manager-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: wazuh-general
+        resources:
+          requests:
+            storage: 50Gi

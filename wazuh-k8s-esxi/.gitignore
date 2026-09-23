@@ -1,0 +1,8 @@
+# Local overrides and generated files — do not commit secrets
+config/cluster.env.local
+**/cluster.env.local
+manifests/.rendered/
+*.tgz
+*.pem
+*.key
+/var/

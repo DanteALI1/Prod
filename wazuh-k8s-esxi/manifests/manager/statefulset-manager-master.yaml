@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wazuh-manager-master
+  namespace: __NAMESPACE__
+  labels:
+    app: wazuh-manager
+    node-type: master
+spec:
+  serviceName: wazuh-cluster
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wazuh-manager
+      node-type: master
+  template:
+    metadata:
+      labels:
+        app: wazuh-manager
+        node-type: master
+    spec:
+      nodeSelector:
+        wazuh.role: general
+      containers:
+        - name: wazuh-manager
+          image: wazuh/wazuh-manager:__WAZUH_VERSION__
+          ports:
+            - containerPort: 1514
+              name: events
+            - containerPort: 1515
+              name: enrollment
+            - containerPort: 55000
+              name: api
+            - containerPort: 1516
+              name: cluster
+          env:
+            - name: WAZUH_MANAGER_NAME
+              value: wazuh-manager-master-0
+            - name: CLUSTER_NODE_TYPE
+              value: master
+            - name: CLUSTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: cluster-key
+            - name: FILEBEAT_SSL_VERIFICATION_MODE
+              value: full
+            - name: INDEXER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: indexer-user
+            - name: INDEXER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: indexer-password
+            - name: API_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: api-user
+            - name: API_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: api-password
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          volumeMounts:
+            - name: manager-data
+              mountPath: /var/ossec/data
+            - name: manager-etc
+              mountPath: /wazuh-config-mount/etc
+          readinessProbe:
+            tcpSocket:
+              port: 55000
+            initialDelaySeconds: 45
+            periodSeconds: 15
+  volumeClaimTemplates:
+    - metadata:
+        name: manager-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: wazuh-general
+        resources:
+          requests:
+            storage: 50Gi
+    - metadata:
+        name: manager-etc
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: wazuh-general
+        resources:
+          requests:
+            storage: 10Gi

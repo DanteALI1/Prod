@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wazuh-dashboard
+  namespace: __NAMESPACE__
+  labels:
+    app: wazuh-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wazuh-dashboard
+  template:
+    metadata:
+      labels:
+        app: wazuh-dashboard
+    spec:
+      nodeSelector:
+        wazuh.role: general
+      containers:
+        - name: wazuh-dashboard
+          image: wazuh/wazuh-dashboard:__WAZUH_VERSION__
+          ports:
+            - containerPort: 5601
+              name: https
+          env:
+            - name: INDEXER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: indexer-user
+            - name: INDEXER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: indexer-password
+            - name: DASHBOARD_USERNAME
+              value: kibanaserver
+            - name: DASHBOARD_PASSWORD
+              value: "__DASHBOARD_PASSWORD__"
+            - name: SERVER_SSL_ENABLED
+              value: "true"
+            - name: WAZUH_API_URL
+              value: https://wazuh-manager-master:55000
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          readinessProbe:
+            tcpSocket:
+              port: 5601
+            initialDelaySeconds: 40
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-dashboard
+  namespace: __NAMESPACE__
+spec:
+  type: NodePort
+  ports:
+    - name: https
+      port: 443
+      targetPort: 5601
+      nodePort: 31443
+  selector:
+    app: wazuh-dashboard

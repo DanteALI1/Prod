@@ -1,0 +1,57 @@
+# OpenSearch Dashboards / Wazuh Dashboard values overlay (reference)
+# Used when deploying via official wazuh-kubernetes + helm; local manifests
+# already encode the same sizing.
+
+wazuh:
+  version: "4.9.2"
+  agents: 200
+
+indexer:
+  replicas: 3
+  javaOpts: "-Xms16g -Xmx16g"
+  resources:
+    requests:
+      cpu: "4"
+      memory: 24Gi
+    limits:
+      cpu: "7"
+      memory: 30Gi
+  persistence:
+    size: 2Ti
+    storageClass: wazuh-indexer-local
+  nodeSelector:
+    wazuh.role: indexer
+  tolerations:
+    - key: wazuh-indexer
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+
+manager:
+  master:
+    replicas: 1
+    resources:
+      requests: { cpu: "2", memory: 4Gi }
+      limits: { cpu: "4", memory: 8Gi }
+    nodeSelector: { wazuh.role: general }
+    persistence: { size: 50Gi, storageClass: wazuh-general }
+  worker:
+    replicas: 1
+    resources:
+      requests: { cpu: "2", memory: 4Gi }
+      limits: { cpu: "4", memory: 8Gi }
+    nodeSelector: { wazuh.role: general }
+    persistence: { size: 50Gi, storageClass: wazuh-general }
+
+dashboard:
+  replicas: 1
+  resources:
+    requests: { cpu: "500m", memory: 1Gi }
+    limits: { cpu: "2", memory: 4Gi }
+  nodeSelector: { wazuh.role: general }
+
+ism:
+  hotDays: 14
+  warmAfterDays: 14
+  deleteAfterDays: 90
+  snapshotRepository: wazuh-cold-archive

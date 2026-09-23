@@ -1,0 +1,77 @@
+# Pre-bound local PVs for 3 Indexer nodes.
+# EDIT metadata.nodeAffinity node names to match: kubectl get nodes -l wazuh.role=indexer
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: wazuh-indexer-pv-0
+  labels:
+    app: wazuh-indexer
+    pvc: wazuh-indexer-wazuh-indexer-0
+spec:
+  capacity:
+    storage: 2Ti
+  volumeMode: Filesystem
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: wazuh-indexer-local
+  local:
+    path: /var/lib/wazuh-indexer
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - k8s-indexer-01
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: wazuh-indexer-pv-1
+  labels:
+    app: wazuh-indexer
+    pvc: wazuh-indexer-wazuh-indexer-1
+spec:
+  capacity:
+    storage: 2Ti
+  volumeMode: Filesystem
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: wazuh-indexer-local
+  local:
+    path: /var/lib/wazuh-indexer
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - k8s-indexer-02
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: wazuh-indexer-pv-2
+  labels:
+    app: wazuh-indexer
+    pvc: wazuh-indexer-wazuh-indexer-2
+spec:
+  capacity:
+    storage: 2Ti
+  volumeMode: Filesystem
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: wazuh-indexer-local
+  local:
+    path: /var/lib/wazuh-indexer
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - k8s-indexer-03

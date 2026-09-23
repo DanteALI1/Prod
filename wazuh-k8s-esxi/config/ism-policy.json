@@ -1,0 +1,72 @@
+{
+  "policy": {
+    "description": "Wazuh alerts: hot 14d -> warm -> snapshot+delete at 90d. Sized for ~200 agents / ~23 GiB primary/day.",
+    "default_state": "hot",
+    "states": [
+      {
+        "name": "hot",
+        "actions": [
+          {
+            "replica_count": {
+              "number_of_replicas": 1
+            }
+          }
+        ],
+        "transitions": [
+          {
+            "state_name": "warm",
+            "conditions": {
+              "min_index_age": "14d"
+            }
+          }
+        ]
+      },
+      {
+        "name": "warm",
+        "actions": [
+          {
+            "replica_count": {
+              "number_of_replicas": 1
+            }
+          },
+          {
+            "force_merge": {
+              "max_num_segments": 1
+            }
+          },
+          {
+            "read_only": {}
+          }
+        ],
+        "transitions": [
+          {
+            "state_name": "cold_archive",
+            "conditions": {
+              "min_index_age": "90d"
+            }
+          }
+        ]
+      },
+      {
+        "name": "cold_archive",
+        "actions": [
+          {
+            "snapshot": {
+              "repository": "wazuh-cold-archive",
+              "snapshot": "ism-snap-{{ctx.index}}-{{ctx.execution_id}}"
+            }
+          },
+          {
+            "delete": {}
+          }
+        ]
+      }
+    ],
+    "ism_template": [
+      {
+        "index_patterns": ["wazuh-alerts-*", "wazuh-archives-*"],
+        "priority": 100
+      }
+    ]
+  }
+}

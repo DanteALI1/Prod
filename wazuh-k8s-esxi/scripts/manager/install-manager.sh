@@ -64,6 +64,10 @@ ensure_helm() {
 apply_storage() {
   log "Applying StorageClass / PV manifests"
   kubectl apply -f "${ROOT_DIR}/manifests/storage/"
+  if [[ -d "${ROOT_DIR}/manifests/network" ]]; then
+    log "Applying NetworkPolicies (review agent CIDR before production)"
+    kubectl apply -f "${ROOT_DIR}/manifests/network/" || warn "NetworkPolicy apply failed (CNI may lack support)"
+  fi
 }
 
 create_secrets() {

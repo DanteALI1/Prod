@@ -69,10 +69,11 @@ wazuh-k8s-esxi/
 | 2 | Сохранить join-команду из вывода CP (`kubeadm token create --print-join-command`) → вписать `KUBEADM_TOKEN` / `KUBEADM_HASH` в `cluster.env` |
 | 3 | `k8s-worker-01`, `k8s-worker-02` | `sudo -E bash scripts/worker/install-worker.sh` |
 | 4 | `k8s-indexer-01..03` | `sudo -E bash scripts/indexer/install-indexer.sh` |
-| 5 | `k8s-cp-01` (или admin host с kubeconfig) | `sudo -E bash scripts/manager/install-manager.sh` |
-| 6 | тот же admin host | `sudo -E bash scripts/dashboard/install-dashboard.sh` |
-| 7 | admin host (после Ready подов Indexer) | `sudo -E bash scripts/archiving/setup-archiving.sh` |
-| 8 | | Пройти `docs/checklist.md` |
+| 5 | `k8s-cp-01` | `sudo -E bash scripts/common/label-nodes.sh` |
+| 6 | `k8s-cp-01` (или admin host с kubeconfig) | `sudo -E bash scripts/manager/install-manager.sh` |
+| 7 | тот же admin host | `sudo -E bash scripts/dashboard/install-dashboard.sh` |
+| 8 | admin host (после Ready подов Indexer) | `sudo -E bash scripts/archiving/setup-archiving.sh` |
+| 9 | | Пройти `docs/checklist.md` |
 
 Инструкции для человека (пошагово с объяснениями) лежат рядом со скриптами: `install-guide-*.md`.
 

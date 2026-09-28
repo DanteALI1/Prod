@@ -24,10 +24,12 @@
 
 Скрипт:
 
-1. Клонирует `wazuh/wazuh-kubernetes` tag `WAZUH_K8S_TAG` **или** применяет локальные manifests.  
+1. Скачивает официальный `wazuh/wazuh-kubernetes` tag `WAZUH_K8S_TAG` (**по умолчанию tarball без `.git`**, не `git clone`) — см. `docs/wazuh-upstream-fetch.md`.  
 2. Генерирует `WAZUH_CLUSTER_KEY` (32 hex), если пуст.  
 3. Создаёт secrets (indexer creds, API password, certs).  
-4. Деплоит Indexer StatefulSet (3) + Manager через overlays/Helm values `helm/values-wazuh.yaml`.
+4. Деплоит Indexer StatefulSet (3) + Manager через **локальные** manifests / values `helm/values-wazuh.yaml`.
+
+> **Отпечаток:** не оставляйте `/var/tmp/wazuh-kubernetes/.git` на CP. Default: `WAZUH_K8S_FETCH_METHOD=tarball`, `WAZUH_K8S_STRIP_GIT=true`. В закрытом контуре — `skip` и доставка архива вручную.
 
 > **Почему не «чистый» сторонний chart без оговорок:** официальный путь Wazuh — репозиторий [wazuh-kubernetes](https://github.com/wazuh/wazuh-kubernetes) (kustomize/helm). Пакет использует его как базу + наши values/overlays (ISM, nodeSelector, local PV). Это снижает drift от upstream security patches.
 

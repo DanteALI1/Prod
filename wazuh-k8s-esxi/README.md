@@ -15,7 +15,8 @@
 Читайте сначала → **[docs/pods-resources-simple.md](docs/pods-resources-simple.md)**  
 (ВМ vs поды, CPU/RAM/диск на каждый под, схема размещения.)
 
-Установка на РЕД ОС / Astra → **[docs/os-redos-astra.md](docs/os-redos-astra.md)**
+Установка на РЕД ОС / Astra → **[docs/os-redos-astra.md](docs/os-redos-astra.md)**  
+Доставка с GitHub без отпечатка (токен/`.git`) → **[docs/git-clone-clean.md](docs/git-clone-clean.md)**
 
 ## Состав решения (6 ВМ)
 
@@ -60,6 +61,7 @@ wazuh-k8s-esxi/
 ├── docs/
 │   ├── pods-resources-simple.md   # ← начните здесь
 │   ├── os-redos-astra.md          # РЕД ОС 8 / Astra с нуля
+│   ├── git-clone-clean.md         # clone/tarball без токена на сервере
 │   ├── architecture.md
 │   ├── network-security.md
 │   ├── disk-layout.md

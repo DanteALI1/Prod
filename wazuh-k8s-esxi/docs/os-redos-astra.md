@@ -26,7 +26,7 @@
    - `github.com` (containerd/runc/cni на РЕД ОС)
    - `raw.githubusercontent.com` (Calico)
    - `registry.k8s.io` / Docker Hub (образы pause, Wazuh)
-4. Скопировать пакет `wazuh-k8s-esxi/` на ВМ.
+4. Скопировать пакет `wazuh-k8s-esxi/` на ВМ (**без токена GitHub на диске** — см. `docs/git-clone-clean.md`).
 5. Заполнить `config/cluster.env` (IP, пароли, имена дисков `/dev/sdb`, `/dev/sdc`).
 
 ```bash

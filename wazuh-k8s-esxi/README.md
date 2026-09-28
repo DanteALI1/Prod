@@ -67,6 +67,7 @@ wazuh-k8s-esxi/
 ├── helm/values-wazuh.yaml
 ├── manifests/
 └── scripts/
+    ├── install.sh             # ← общий вход: выбор роли/пода, затем установка
     ├── common/lib.sh          # multi-OS: redos | astra | ubuntu
     ├── control-plane|worker|indexer|manager|dashboard|archiving/
 ```
@@ -80,17 +81,27 @@ wazuh-k8s-esxi/
 3. Скопировать пакет, заполнить `config/cluster.env` (IP/пароли/диски).
 4. `export WAZUH_K8S_ENV=/etc/wazuh-k8s/cluster.env`
 
-| Шаг | Где | Команда |
-|-----|-----|---------|
-| 1 | `k8s-cp-01` | `sudo -E bash scripts/control-plane/install-control-plane.sh` |
-| 2 | Сохранить `KUBEADM_TOKEN` / `KUBEADM_HASH` из вывода в `cluster.env` |
-| 3 | `k8s-worker-01`, `k8s-worker-02` | `sudo -E bash scripts/worker/install-worker.sh` |
-| 4 | `k8s-indexer-01..03` | `sudo -E bash scripts/indexer/install-indexer.sh` |
-| 5 | `k8s-cp-01` | `sudo -E bash scripts/common/label-nodes.sh` |
-| 6 | CP | `sudo -E bash scripts/manager/install-manager.sh` |
-| 7 | CP | `sudo -E bash scripts/dashboard/install-dashboard.sh` |
-| 8 | CP | `sudo -E bash scripts/archiving/setup-archiving.sh` |
-| 9 | | Пройти `docs/checklist.md` |
+### Общий скрипт (рекомендуется)
+
+Единая точка входа с выбором роли/пода в начале:
+
+```bash
+sudo -E bash scripts/install.sh              # интерактивное меню
+sudo -E bash scripts/install.sh --role worker
+sudo -E bash scripts/install.sh indexer      # коротко
+```
+
+| Шаг | Где | Команда (общий скрипт) | Эквивалент напрямую |
+|-----|-----|------------------------|---------------------|
+| 1 | `k8s-cp-01` | `sudo -E bash scripts/install.sh --role control-plane` | `scripts/control-plane/install-control-plane.sh` |
+| 2 | Сохранить `KUBEADM_TOKEN` / `KUBEADM_HASH` из вывода в `cluster.env` | — | — |
+| 3 | `k8s-worker-01`, `k8s-worker-02` | `sudo -E bash scripts/install.sh --role worker` | `scripts/worker/install-worker.sh` |
+| 4 | `k8s-indexer-01..03` | `sudo -E bash scripts/install.sh --role indexer` | `scripts/indexer/install-indexer.sh` |
+| 5 | `k8s-cp-01` | `sudo -E bash scripts/install.sh --role labels` | `scripts/common/label-nodes.sh` |
+| 6 | CP | `sudo -E bash scripts/install.sh --role manager` | `scripts/manager/install-manager.sh` |
+| 7 | CP | `sudo -E bash scripts/install.sh --role dashboard` | `scripts/dashboard/install-dashboard.sh` |
+| 8 | CP | `sudo -E bash scripts/install.sh --role archiving` | `scripts/archiving/setup-archiving.sh` |
+| 9 | | Пройти `docs/checklist.md` | — |
 
 Скрипты на пустой ОС сами ставят curl, lvm2, jq, containerd, kubeadm и открывают firewall-порты.
 

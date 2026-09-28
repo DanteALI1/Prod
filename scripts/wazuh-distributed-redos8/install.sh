@@ -28,6 +28,15 @@ AUTO_YES="0"
 SSH_USER="root"
 SSH_PORT="22"
 SSH_IDENTITY=""
+# auto | yes | no — нужен ли sudo на удалённой машине
+SSH_USE_SUDO="auto"
+# yes | no | ask — пароль для sudo (ask = спросить один раз за сессию, не сохранять)
+SSH_SUDO_PASSWORDLESS="ask"
+REMOTE_SUDO_PASS=""
+# Каталог установки на целевой машине (всегда под root — wazuh-install требует root)
+REMOTE_WORKDIR="/root/wazuh-install"
+# Staging у обычного пользователя (куда кладём scp до sudo)
+REMOTE_STAGE='"$HOME/wazuh-install-stage"'
 SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
 
 RED='\033[0;31m'
@@ -135,8 +144,11 @@ save_ssh_settings() {
 SSH_USER="${SSH_USER}"
 SSH_PORT="${SSH_PORT}"
 SSH_IDENTITY="${SSH_IDENTITY}"
+SSH_USE_SUDO="${SSH_USE_SUDO}"
+SSH_SUDO_PASSWORDLESS="${SSH_SUDO_PASSWORDLESS}"
+REMOTE_WORKDIR="${REMOTE_WORKDIR}"
 EOF
-  ok "SSH-настройки: ${SSH_CONF}"
+  ok "SSH-настройки: ${SSH_CONF} (пароль sudo сюда НЕ пишется)"
 }
 
 rebuild_ssh_opts() {
@@ -146,8 +158,44 @@ rebuild_ssh_opts() {
   fi
 }
 
+remote_needs_sudo() {
+  case "${SSH_USE_SUDO}" in
+    yes|y|1) return 0 ;;
+    no|n|0) return 1 ;;
+    *)
+      [[ "${SSH_USER}" != "root" ]]
+      ;;
+  esac
+}
+
+ensure_remote_sudo_auth() {
+  # Подготовить REMOTE_SUDO_PASS / проверить NOPASSWD при необходимости
+  remote_needs_sudo || return 0
+  if [[ "${SSH_SUDO_PASSWORDLESS}" == "yes" ]]; then
+    return 0
+  fi
+  if [[ -n "${REMOTE_SUDO_PASS}" ]]; then
+    return 0
+  fi
+  if [[ "${SSH_SUDO_PASSWORDLESS}" == "ask" || "${SSH_SUDO_PASSWORDLESS}" == "no" ]]; then
+    echo
+    warn "На удалённых хостах установка идёт от root через sudo."
+    echo "  1) sudo NOPASSWD (без пароля) — предпочтительно для автоматизации"
+    echo "  2) ввести пароль sudo один раз (в память, не в файл)"
+    ask "Режим sudo на удалённых (1=NOPASSWD / 2=пароль)" "1"
+    if [[ "${REPLY}" == "2" ]]; then
+      SSH_SUDO_PASSWORDLESS="no"
+      read -r -s -p "Пароль sudo для пользователя ${SSH_USER}: " REMOTE_SUDO_PASS
+      echo
+      [[ -n "${REMOTE_SUDO_PASS}" ]] || { err "Пустой пароль"; return 1; }
+    else
+      SSH_SUDO_PASSWORDLESS="yes"
+    fi
+  fi
+}
+
 configure_ssh_settings() {
-  hdr "Параметры SSH для удалённой установки"
+  hdr "Параметры SSH / sudo для удалённой установки"
   load_ssh_settings
   ask "SSH user" "${SSH_USER}"
   SSH_USER="${REPLY}"
@@ -155,9 +203,28 @@ configure_ssh_settings() {
   SSH_PORT="${REPLY}"
   ask "Путь к приватному ключу (пусто = ssh-agent / default)" "${SSH_IDENTITY}"
   SSH_IDENTITY="${REPLY}"
+
+  echo
+  info "Wazuh installation assistant требует root на целевой машине."
+  if [[ "${SSH_USER}" == "root" ]]; then
+    SSH_USE_SUDO="no"
+    ok "User=root → sudo на удалённой не нужен"
+  else
+    ask "Использовать sudo на удалённой машине? (auto/yes/no)" "yes"
+    SSH_USE_SUDO="${REPLY}"
+    warn "У пользователя ${SSH_USER} должны быть права sudo (желательно NOPASSWD на ALL или /bin/bash)."
+    ask "sudo без пароля (NOPASSWD)? (yes/no/ask)" "${SSH_SUDO_PASSWORDLESS}"
+    SSH_SUDO_PASSWORDLESS="${REPLY}"
+  fi
+
+  ask "Каталог установки на целевой (от root)" "${REMOTE_WORKDIR}"
+  REMOTE_WORKDIR="${REPLY}"
+
   rebuild_ssh_opts
   save_ssh_settings
-  info "Проверка: нужен доступ без пароля (ключ). Пример: ssh-copy-id -i ... ${SSH_USER}@HOST"
+  REMOTE_SUDO_PASS=""
+  info "SSH: ssh-copy-id -i … ${SSH_USER}@HOST"
+  info "sudo: visudo → например: ${SSH_USER} ALL=(ALL) NOPASSWD: ALL"
 }
 
 ssh_cmd() {
@@ -165,9 +232,31 @@ ssh_cmd() {
   ssh "${SSH_OPTS[@]}" "${SSH_USER}@${host}" "$@"
 }
 
-scp_to() {
+# Выполнить команду на удалённой машине от root (напрямую или через sudo)
+remote_root_cmd() {
   local host="$1"; shift
-  scp "${SSH_OPTS[@]}" "$@" "${SSH_USER}@${host}:${WORKDIR}/"
+  local remote_cmd="$*"
+
+  if ! remote_needs_sudo; then
+    ssh_cmd "${host}" "bash -lc $(printf '%q' "${remote_cmd}")"
+    return $?
+  fi
+
+  ensure_remote_sudo_auth || return 1
+
+  if [[ "${SSH_SUDO_PASSWORDLESS}" == "yes" ]]; then
+    # -n: не спрашивать пароль; упадёт, если NOPASSWD нет
+    ssh_cmd "${host}" "sudo -n bash -lc $(printf '%q' "${remote_cmd}")"
+    return $?
+  fi
+
+  # пароль через sudo -S (передаём в remote stdin явно)
+  ssh_cmd "${host}" "printf '%s\n' $(printf '%q' "${REMOTE_SUDO_PASS}") | sudo -S -p '' bash -lc $(printf '%q' "${remote_cmd}")"
+}
+
+remote_stage_dir_cmd() {
+  # печатает путь staging на remote (раскрывает $HOME)
+  echo 'printf %s "$HOME/wazuh-install-stage"'
 }
 
 # ---------------------------------------------------------------------------
@@ -864,50 +953,93 @@ export_credentials_menu() {
 }
 
 # ---------------------------------------------------------------------------
-# Remote SSH orchestration
+# Remote SSH orchestration (учитывает sudo на целевой машине)
 # ---------------------------------------------------------------------------
 remote_push_bundle() {
   local host="$1"
-  hdr "Копирование файлов → ${SSH_USER}@${host}:${WORKDIR}"
   require_tar_and_assistant || return 1
   [[ -f "${SELF_SCRIPT}" ]] || { err "Не найден путь к install.sh"; return 1; }
 
-  ssh_cmd "${host}" "mkdir -p '${WORKDIR}/logs' && chmod 700 '${WORKDIR}'"
+  local stage dest
+  if remote_needs_sudo; then
+    stage="$(ssh_cmd "${host}" 'printf %s "$HOME/wazuh-install-stage"')"
+    dest="${REMOTE_WORKDIR}"
+    hdr "Копирование → ${SSH_USER}@${host}:${stage}  затем sudo → ${dest}"
+  else
+    stage="${REMOTE_WORKDIR}"
+    dest="${REMOTE_WORKDIR}"
+    hdr "Копирование → ${SSH_USER}@${host}:${dest}"
+  fi
+
+  ssh_cmd "${host}" "mkdir -p '${stage}/logs' && chmod 700 '${stage}'"
 
   local files=("${ASSISTANT}" "${TAR_FILE}" "${SELF_SCRIPT}")
   [[ -f "${CONFIG_FILE}" ]] && files+=("${CONFIG_FILE}")
   [[ -f "${CRED_FILE}" ]] && files+=("${CRED_FILE}")
 
-  scp "${SSH_OPTS[@]}" "${files[@]}" "${SSH_USER}@${host}:${WORKDIR}/"
-  ssh_cmd "${host}" "cd '${WORKDIR}' && mv -f '$(basename "${SELF_SCRIPT}")' install.sh && chmod +x wazuh-install.sh install.sh"
-  ok "Файлы на ${host} готовы"
+  scp "${SSH_OPTS[@]}" "${files[@]}" "${SSH_USER}@${host}:${stage}/"
+  ssh_cmd "${host}" "cd '${stage}' && mv -f '$(basename "${SELF_SCRIPT}")' install.sh && chmod +x wazuh-install.sh install.sh"
+
+  if remote_needs_sudo; then
+    ensure_remote_sudo_auth || return 1
+    info "Перенос staging → ${dest} через sudo…"
+    remote_root_cmd "${host}" "mkdir -p '${dest}/logs' && cp -a '${stage}/.' '${dest}/' && chmod 700 '${dest}' && chmod +x '${dest}/wazuh-install.sh' '${dest}/install.sh'"
+  fi
+  ok "Файлы на ${host} в ${dest} готовы (установка пойдёт от root)"
 }
 
 remote_apply_hosts() {
   local host="$1"
   parse_inventory || return 1
-  local block
+  local block b64
   block="$(hosts_block_text)"
-  ssh_cmd "${host}" "bash -s" <<EOF
-set -e
+  b64="$(printf '%s' "${block}" | base64 -w0 2>/dev/null || printf '%s' "${block}" | base64)"
+
+  local script
+  script="$(cat <<EOS
+set -euo pipefail
 marker='# wazuh-distributed-begin'
 endmark='# wazuh-distributed-end'
 if grep -q "\$marker" /etc/hosts 2>/dev/null; then
   sed -i "/\$marker/,/\$endmark/d" /etc/hosts
 fi
-cat >> /etc/hosts <<'HOSTS'
-${block}
-HOSTS
+echo '${b64}' | base64 -d >> /etc/hosts
 echo 'hosts updated'
-EOF
+EOS
+)"
+  remote_root_script "${host}" "${script}"
+}
+
+remote_root_script() {
+  local host="$1"
+  local script="$2"
+  local sb64
+  sb64="$(printf '%s' "${script}" | base64 -w0 2>/dev/null || printf '%s' "${script}" | base64)"
+
+  if ! remote_needs_sudo; then
+    ssh_cmd "${host}" "echo '${sb64}' | base64 -d | bash"
+    return $?
+  fi
+  ensure_remote_sudo_auth || return 1
+  if [[ "${SSH_SUDO_PASSWORDLESS}" == "yes" ]]; then
+    ssh_cmd "${host}" "echo '${sb64}' | base64 -d | sudo -n bash"
+    return $?
+  fi
+  # пароль в sudo -S, скрипт через отдельный base64 внутри
+  ssh_cmd "${host}" "printf '%s\n' $(printf '%q' "${REMOTE_SUDO_PASS}") | sudo -S -p '' bash -c \"echo '${sb64}' | base64 -d | bash\""
 }
 
 remote_run_auto() {
   local host="$1"
   shift
-  # remaining: args to remote install.sh
-  info "SSH ${host}: bash install.sh $*"
-  ssh_cmd "${host}" "cd '${WORKDIR}' && bash ./install.sh $*"
+  local args_q="" a
+  for a in "$@"; do
+    args_q+=" $(printf '%q' "${a}")"
+  done
+  local via="root"
+  remote_needs_sudo && via="sudo→root"
+  info "SSH ${host} (${via}): install.sh${args_q}"
+  remote_root_cmd "${host}" "cd $(printf '%q' "${REMOTE_WORKDIR}") && export WAZUH_WORKDIR=$(printf '%q' "${REMOTE_WORKDIR}") && bash ./install.sh${args_q}"
 }
 
 ensure_ssh_ready() {
@@ -917,15 +1049,45 @@ ensure_ssh_ready() {
     err "Нужны ssh и scp (openssh-clients)"
     return 1
   fi
+  if remote_needs_sudo; then
+    info "Удалённый доступ: ${SSH_USER} + sudo → root (WORKDIR=${REMOTE_WORKDIR})"
+  else
+    info "Удалённый доступ: ${SSH_USER} как root (WORKDIR=${REMOTE_WORKDIR})"
+  fi
 }
 
 test_ssh_host() {
   local host="$1"
-  if ssh_cmd "${host}" "echo OK" >/dev/null 2>&1; then
-    ok "SSH ${SSH_USER}@${host} — OK"
+  if ! ssh_cmd "${host}" "echo OK" >/dev/null 2>&1; then
+    err "Нет SSH-доступа к ${SSH_USER}@${host} (нужен ключ: ssh-copy-id ${SSH_USER}@${host})"
+    return 1
+  fi
+  ok "SSH ${SSH_USER}@${host} — OK"
+
+  if ! remote_needs_sudo; then
+    if ! ssh_cmd "${host}" "test \"\$(id -u)\" -eq 0"; then
+      err "SSH user не root, а SSH_USE_SUDO=no. Включите sudo в настройках SSH (пункт b)."
+      return 1
+    fi
+    ok "Удалённая сессия уже root"
     return 0
   fi
-  err "Нет SSH-доступа к ${SSH_USER}@${host} (нужен ключ / ssh-copy-id)"
+
+  ensure_remote_sudo_auth || return 1
+  if [[ "${SSH_SUDO_PASSWORDLESS}" == "yes" ]]; then
+    if ssh_cmd "${host}" "sudo -n true" >/dev/null 2>&1; then
+      ok "sudo NOPASSWD на ${host} — OK"
+      return 0
+    fi
+    err "sudo -n не сработал на ${host}. Настройте NOPASSWD или выберите ввод пароля sudo (пункт b)."
+    return 1
+  fi
+
+  if printf '%s\n' "${REMOTE_SUDO_PASS}" | ssh_cmd "${host}" "sudo -S -p '' true" >/dev/null 2>&1; then
+    ok "sudo с паролем на ${host} — OK"
+    return 0
+  fi
+  err "sudo с паролем не принят на ${host}"
   return 1
 }
 
@@ -1085,10 +1247,13 @@ menu_remote_hub() {
   hdr "Удалённая установка / выбор сервера"
   cat <<EOF
   a) Показать инвентарь (серверы из config.yml)
-  b) Настроить SSH (user / port / ключ)
+  b) Настроить SSH + sudo (user / ключ / NOPASSWD или пароль)
   c) Выбрать ОДИН сервер и действие (роль / prep / copy / start-cluster)
   d) Установить ВЕСЬ кластер удалённо по порядку
   e) Назад
+
+  Важно: wazuh-install.sh на целевой машине всегда запускается от root.
+  Если SSH user не root — нужен sudo (лучше NOPASSWD).
 EOF
   ask "Выбор" "c"
   case "${REPLY}" in
@@ -1161,7 +1326,7 @@ ${BOLD}
 ${NC}
 WORKDIR: ${WORKDIR}
 CREDENTIALS: ${CRED_FILE}
-SSH: ${SSH_USER}@… port ${SSH_PORT}
+SSH: ${SSH_USER}@… port ${SSH_PORT} | sudo=${SSH_USE_SUDO}
 EOF
 }
 

@@ -9,32 +9,40 @@
 sudo bash install.sh
 ```
 
-## Выбор сервера и роли (новое)
+## Выбор сервера и роли
 
-После создания `config.yml` (пункт 3) и генерации сертификатов (пункт 4):
+После `config.yml` (пункт 3) и генерации сертификатов (пункт 4):
 
-1. Пункт **15** — меню удалённой установки  
-2. **b)** настроить SSH (user / port / ключ; нужен вход без пароля)  
-3. **c)** выбрать узел из списка (имя + IP + роль из config.yml) и действие  
-4. или **d)** поставить весь кластер по порядку: все Indexer → start-cluster → Server → Dashboard  
+1. Пункт **15** — удалённая установка  
+2. **b)** SSH **и sudo**:
+   - `root` — sudo не нужен  
+   - обычный user — нужен **sudo** (лучше NOPASSWD); иначе пароль sudo один раз в память  
+3. **c)** один сервер / действие, или **d)** весь кластер  
 
-Скрипт сам копирует на целевой хост `wazuh-install.sh`, `wazuh-install-files.tar`, `install.sh`, `config.yml` и запускает нужную роль.
+На целевой машине установка **всегда от root** (требование Wazuh).  
+Не-root SSH: `~/wazuh-install-stage` → `sudo` в `/root/wazuh-install` → `sudo bash install.sh …`.
+
+Пример NOPASSWD:
+
+```text
+# visudo
+deploy ALL=(ALL) NOPASSWD: ALL
+```
 
 ## Типовой порядок
 
-1. На админ-хосте: **1 → 2 → 3 → 4**  
-2. SSH-ключи на все узлы: `ssh-copy-id root@IP`  
-3. Пункт **15 → d** (весь кластер) или **15 → c** (по одному серверу)  
-4. Креды: пункт **11** → `/root/wazuh-install/wazuh-credentials.txt`
+1. Админ-хост: **1 → 2 → 3 → 4**  
+2. `ssh-copy-id user@IP` (+ sudo на узлах)  
+3. **15 → b** (SSH/sudo) → **15 → d** или **c**  
+4. Креды: **11** → `/root/wazuh-install/wazuh-credentials.txt`
 
-## Non-interactive (для SSH-дочерних вызовов)
+## Non-interactive
 
 ```bash
 sudo bash install.sh --auto-role indexer --node-name node-1
 sudo bash install.sh --auto-role server --node-name wazuh-1
 sudo bash install.sh --auto-role dashboard --node-name dashboard --port 443
 sudo bash install.sh --auto-role start-cluster
-sudo bash install.sh --status
 ```
 
 ## Документация

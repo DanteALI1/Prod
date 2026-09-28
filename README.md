@@ -15,4 +15,5 @@ sudo -E bash scripts/install.sh
 - Установка на РЕД ОС / Astra: [wazuh-k8s-esxi/docs/os-redos-astra.md](wazuh-k8s-esxi/docs/os-redos-astra.md)
 - Доставка пакета Prod без отпечатка: [wazuh-k8s-esxi/docs/git-clone-clean.md](wazuh-k8s-esxi/docs/git-clone-clean.md)
 - Скачивание upstream Wazuh без `.git`: [wazuh-k8s-esxi/docs/wazuh-upstream-fetch.md](wazuh-k8s-esxi/docs/wazuh-upstream-fetch.md)
+- Как собирается кластер: [wazuh-k8s-esxi/docs/cluster-assembly.md](wazuh-k8s-esxi/docs/cluster-assembly.md)
 - Полный пакет: [wazuh-k8s-esxi/README.md](wazuh-k8s-esxi/README.md)

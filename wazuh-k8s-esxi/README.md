@@ -17,7 +17,8 @@
 
 Установка на РЕД ОС / Astra → **[docs/os-redos-astra.md](docs/os-redos-astra.md)**  
 Доставка пакета Prod без отпечатка → **[docs/git-clone-clean.md](docs/git-clone-clean.md)**  
-Скачивание upstream **Wazuh** (`wazuh-kubernetes`) без `.git` → **[docs/wazuh-upstream-fetch.md](docs/wazuh-upstream-fetch.md)**
+Скачивание upstream **Wazuh** (`wazuh-kubernetes`) без `.git` → **[docs/wazuh-upstream-fetch.md](docs/wazuh-upstream-fetch.md)**  
+Как собирается кластер (K8s / Indexer / Manager) → **[docs/cluster-assembly.md](docs/cluster-assembly.md)**
 
 ## Состав решения (6 ВМ)
 
@@ -64,6 +65,7 @@ wazuh-k8s-esxi/
 │   ├── os-redos-astra.md          # РЕД ОС 8 / Astra с нуля
 │   ├── git-clone-clean.md         # доставка пакета Prod без токена/.git
 │   ├── wazuh-upstream-fetch.md    # скачивание wazuh-kubernetes без .git
+│   ├── cluster-assembly.md        # как склеиваются K8s / Indexer / Manager
 │   ├── architecture.md
 │   ├── network-security.md
 │   ├── disk-layout.md

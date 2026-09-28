@@ -18,9 +18,12 @@
 | **Каталог на CP** | `/var/tmp/wazuh-kubernetes` (`WAZUH_K8S_WORKDIR`) |
 | **Тег** | `WAZUH_K8S_TAG` (по умолчанию `v4.9.2`) |
 
-После скачивания пакет **всё равно применяет локальные** hardened manifests  
-из `manifests/` (nodeSelector, taints, ресурсы). Upstream нужен как эталон/база  
-той же версии; деплой не требует оставлять `.git` на диске.
+После скачивания пакет применяет **локальные** hardened STS/SVC из `manifests/`.  
+Из tarball реально используются эталонные **`master.conf` / `worker.conf`**  
+(блок `<cluster>`) → ConfigMap `wazuh-conf`. Без этого Manager-кластер не соберётся  
+корректно (образ ждёт `WAZUH_CLUSTER_KEY` + mounted ossec.conf).  
+
+Подробности сборки: **`docs/cluster-assembly.md`**. `.git` на диске не нужен.
 
 ---
 

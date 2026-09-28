@@ -21,6 +21,19 @@ spec:
     spec:
       nodeSelector:
         wazuh.role: general
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: wazuh-manager
+                topologyKey: kubernetes.io/hostname
+      volumes:
+        - name: wazuh-conf
+          configMap:
+            name: wazuh-conf
       containers:
         - name: wazuh-manager
           image: wazuh/wazuh-manager:__WAZUH_VERSION__
@@ -32,17 +45,15 @@ spec:
             - containerPort: 1516
               name: cluster
           env:
-            - name: WAZUH_MANAGER_NAME
-              value: wazuh-manager-worker-0
-            - name: CLUSTER_NODE_TYPE
-              value: worker
-            - name: CLUSTER_KEY
+            # Образ: WAZUH_CLUSTER_KEY → <key> в ossec.conf
+            # node_name worker: to_be_replaced_by_hostname → $HOSTNAME пода
+            - name: WAZUH_CLUSTER_KEY
               valueFrom:
                 secretKeyRef:
                   name: wazuh-credentials
                   key: cluster-key
-            - name: CLUSTER_MASTER_IP
-              value: wazuh-manager-master-0.wazuh-cluster
+            - name: INDEXER_URL
+              value: https://wazuh-indexer:9200
             - name: INDEXER_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -61,6 +72,10 @@ spec:
               cpu: "4"
               memory: 8Gi
           volumeMounts:
+            - name: wazuh-conf
+              mountPath: /wazuh-config-mount/etc/ossec.conf
+              subPath: worker.conf
+              readOnly: true
             - name: manager-data
               mountPath: /var/ossec/data
           readinessProbe:

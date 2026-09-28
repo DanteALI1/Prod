@@ -24,12 +24,13 @@
 
 Скрипт:
 
-1. Скачивает официальный `wazuh/wazuh-kubernetes` tag `WAZUH_K8S_TAG` (**по умолчанию tarball без `.git`**, не `git clone`) — см. `docs/wazuh-upstream-fetch.md`.  
-2. Генерирует `WAZUH_CLUSTER_KEY` (32 hex), если пуст.  
-3. Создаёт secrets (indexer creds, API password, certs).  
-4. Деплоит Indexer StatefulSet (3) + Manager через **локальные** manifests / values `helm/values-wazuh.yaml`.
+1. Скачивает официальный `wazuh/wazuh-kubernetes` (**tarball без `.git`**) — из него берутся `master.conf`/`worker.conf` для Manager-кластера (`docs/wazuh-upstream-fetch.md`).  
+2. Генерирует ключ → secret `cluster-key` → env **`WAZUH_CLUSTER_KEY`** в подах.  
+3. ConfigMap `wazuh-conf` (ossec.conf с `<cluster>`) + secrets.  
+4. Деплоит Indexer STS×3 + Manager master/worker (локальные manifests) + headless `wazuh-cluster:1516`.
 
-> **Отпечаток:** не оставляйте `/var/tmp/wazuh-kubernetes/.git` на CP. Default: `WAZUH_K8S_FETCH_METHOD=tarball`, `WAZUH_K8S_STRIP_GIT=true`. В закрытом контуре — `skip` и доставка архива вручную.
+> **Сборка Manager:** worker → DNS `wazuh-manager-master-0.wazuh-cluster.<ns>:1516`. Проверка: `cluster_control -l`. См. `docs/cluster-assembly.md`.  
+> **Отпечаток:** default tarball / `STRIP_GIT=true`. Закрытый контур: `WAZUH_K8S_FETCH_METHOD=skip` (есть вендор conf в пакете).
 
 > **Почему не «чистый» сторонний chart без оговорок:** официальный путь Wazuh — репозиторий [wazuh-kubernetes](https://github.com/wazuh/wazuh-kubernetes) (kustomize/helm). Пакет использует его как базу + наши values/overlays (ISM, nodeSelector, local PV). Это снижает drift от upstream security patches.
 

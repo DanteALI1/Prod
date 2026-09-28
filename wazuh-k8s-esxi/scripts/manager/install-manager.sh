@@ -185,6 +185,7 @@ create_secrets() {
   if kubectl -n "${WAZUH_NAMESPACE}" get secret wazuh-credentials >/dev/null 2>&1; then
     log "Secret wazuh-credentials exists — skip create"
   else
+    # cluster-key → env WAZUH_CLUSTER_KEY в подах (образ подставит в ossec.conf)
     kubectl -n "${WAZUH_NAMESPACE}" create secret generic wazuh-credentials \
       --from-literal=indexer-user="${INDEXER_ADMIN_USER}" \
       --from-literal=indexer-password="${INDEXER_ADMIN_PASSWORD}" \
@@ -193,6 +194,49 @@ create_secrets() {
       --from-literal=dashboard-password="${DASHBOARD_PASSWORD}" \
       --from-literal=cluster-key="${WAZUH_CLUSTER_KEY}"
   fi
+}
+
+# ConfigMap wazuh-conf: master.conf + worker.conf с блоком <cluster>
+# Источник: upstream tarball (если скачан) или вендор в manifests/manager/wazuh_conf/
+apply_manager_cluster_configmap() {
+  local work="${WAZUH_K8S_WORKDIR:-/var/tmp/wazuh-kubernetes}"
+  local out="${ROOT_DIR}/manifests/.rendered/wazuh_conf"
+  local src_master src_worker
+  mkdir -p "${out}"
+
+  if [[ -f "${work}/wazuh/wazuh_managers/wazuh_conf/master.conf" ]]; then
+    log "ossec.conf: берём из upstream tarball ${work}"
+    src_master="${work}/wazuh/wazuh_managers/wazuh_conf/master.conf"
+    src_worker="${work}/wazuh/wazuh_managers/wazuh_conf/worker.conf"
+  else
+    log "ossec.conf: берём вендор manifests/manager/wazuh_conf/ (upstream не скачан)"
+    src_master="${ROOT_DIR}/manifests/manager/wazuh_conf/master.conf"
+    src_worker="${ROOT_DIR}/manifests/manager/wazuh_conf/worker.conf"
+  fi
+  [[ -f "${src_master}" && -f "${src_worker}" ]] \
+    || die "Нет master.conf/worker.conf — кластер Manager не собрать"
+
+  # DNS master в <nodes>: wazuh-manager-master-0.wazuh-cluster.<ns>
+  sed -e "s/wazuh-manager-master-0\.wazuh-cluster\.wazuh/wazuh-manager-master-0.wazuh-cluster.${WAZUH_NAMESPACE}/g" \
+      -e "s/wazuh-manager-master-0\.wazuh-cluster\.__NAMESPACE__/wazuh-manager-master-0.wazuh-cluster.${WAZUH_NAMESPACE}/g" \
+      "${src_master}" >"${out}/master.conf"
+  sed -e "s/wazuh-manager-master-0\.wazuh-cluster\.wazuh/wazuh-manager-master-0.wazuh-cluster.${WAZUH_NAMESPACE}/g" \
+      -e "s/wazuh-manager-master-0\.wazuh-cluster\.__NAMESPACE__/wazuh-manager-master-0.wazuh-cluster.${WAZUH_NAMESPACE}/g" \
+      "${src_worker}" >"${out}/worker.conf"
+
+  # Ключ остаётся to_be_replaced_by_cluster_key — подставит entrypoint образа из WAZUH_CLUSTER_KEY
+  grep -q 'to_be_replaced_by_cluster_key' "${out}/master.conf" \
+    || warn "В master.conf нет placeholder ключа — проверьте <cluster><key>"
+  grep -q '<node_type>master</node_type>' "${out}/master.conf" \
+    || die "master.conf без node_type=master"
+  grep -q '<node_type>worker</node_type>' "${out}/worker.conf" \
+    || die "worker.conf без node_type=worker"
+
+  kubectl -n "${WAZUH_NAMESPACE}" create configmap wazuh-conf \
+    --from-file=master.conf="${out}/master.conf" \
+    --from-file=worker.conf="${out}/worker.conf" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  log "ConfigMap wazuh-conf применён (сбор Manager-кластера по ossec.conf + WAZUH_CLUSTER_KEY)"
 }
 
 render_and_apply_manifests() {
@@ -215,25 +259,30 @@ render_and_apply_manifests() {
       -e "s|__INDEXER_PASSWORD__|${INDEXER_ADMIN_PASSWORD}|g" \
       -e "s|__API_PASSWORD__|${WAZUH_API_PASSWORD}|g" \
       "${f}" >"${out}/${base}"
+    # Защита: в STS должен быть WAZUH_CLUSTER_KEY, не устаревший CLUSTER_KEY
+    if [[ "${base}" == statefulset-manager-*.yaml ]]; then
+      grep -q 'name: WAZUH_CLUSTER_KEY' "${out}/${base}" \
+        || die "${base}: нет env WAZUH_CLUSTER_KEY — кластер Manager не соберётся"
+      grep -q 'wazuh-conf' "${out}/${base}" \
+        || die "${base}: нет mount ConfigMap wazuh-conf"
+    fi
     kubectl apply -f "${out}/${base}"
   done
 }
 
 deploy_via_official_repo() {
-  # ПОМЕТКА: момент скачивания репозитория Wazuh (wazuh-kubernetes).
-  # По умолчанию tarball → на диске нет .git и нет remote origin.
-  # Подробности: docs/wazuh-upstream-fetch.md
+  # ПОМЕТКА: tarball upstream нужен для эталонных ossec.conf (блок <cluster>).
+  # Сами STS/SVC — локальные hardened manifests. См. docs/cluster-assembly.md
   local work="${WAZUH_K8S_WORKDIR:-/var/tmp/wazuh-kubernetes}"
   fetch_wazuh_kubernetes
-  if [[ -d "${work}/envs/single-node" ]] || [[ -d "${work}/wazuh" ]] || [[ -d "${work}" ]]; then
-    if [[ -d "${work}/.git" ]]; then
-      warn "Внимание: ${work}/.git всё ещё на диске (отпечаток git). Задайте WAZUH_K8S_STRIP_GIT=true"
-    else
-      log "Official upstream at ${work} (без .git) — дальше локальные hardened manifests"
-    fi
+  if [[ -d "${work}/.git" ]]; then
+    warn "Внимание: ${work}/.git на диске. Задайте WAZUH_K8S_STRIP_GIT=true"
+  elif [[ -d "${work}/wazuh" ]]; then
+    log "Upstream at ${work} (без .git) — conf для Manager-кластера доступен"
   fi
   apply_storage
   create_secrets
+  apply_manager_cluster_configmap
   render_and_apply_manifests
 }
 

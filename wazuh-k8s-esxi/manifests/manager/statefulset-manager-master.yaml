@@ -21,6 +21,20 @@ spec:
     spec:
       nodeSelector:
         wazuh.role: general
+      # master → worker-01 через PV nodeAffinity; anti-affinity на всякий случай
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: wazuh-manager
+                topologyKey: kubernetes.io/hostname
+      volumes:
+        - name: wazuh-conf
+          configMap:
+            name: wazuh-conf
       containers:
         - name: wazuh-manager
           image: wazuh/wazuh-manager:__WAZUH_VERSION__
@@ -34,15 +48,15 @@ spec:
             - containerPort: 1516
               name: cluster
           env:
-            - name: WAZUH_MANAGER_NAME
-              value: wazuh-manager-master-0
-            - name: CLUSTER_NODE_TYPE
-              value: master
-            - name: CLUSTER_KEY
+            # Образ читает именно WAZUH_CLUSTER_KEY и подставляет в ossec.conf
+            # (placeholder to_be_replaced_by_cluster_key). См. docs/cluster-assembly.md
+            - name: WAZUH_CLUSTER_KEY
               valueFrom:
                 secretKeyRef:
                   name: wazuh-credentials
                   key: cluster-key
+            - name: INDEXER_URL
+              value: https://wazuh-indexer:9200
             - name: FILEBEAT_SSL_VERIFICATION_MODE
               value: full
             - name: INDEXER_USERNAME
@@ -73,10 +87,15 @@ spec:
               cpu: "4"
               memory: 8Gi
           volumeMounts:
+            # ossec.conf с блоком <cluster> (master) — без этого кластер Manager не соберётся
+            - name: wazuh-conf
+              mountPath: /wazuh-config-mount/etc/ossec.conf
+              subPath: master.conf
+              readOnly: true
             - name: manager-data
               mountPath: /var/ossec/data
             - name: manager-etc
-              mountPath: /wazuh-config-mount/etc
+              mountPath: /var/ossec/etc
           readinessProbe:
             tcpSocket:
               port: 55000

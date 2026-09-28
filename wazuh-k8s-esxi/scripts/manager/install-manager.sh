@@ -72,8 +72,102 @@ ensure_git() {
   if ! command -v git >/dev/null 2>&1; then
     detect_os
     # shellcheck disable=SC2086
-    install_packages git || warn "git not installed — official repo clone will be skipped"
+    install_packages git || warn "git not installed — official repo git-fetch will be skipped"
   fi
+}
+
+# -----------------------------------------------------------------------------
+# Скачивание официального wazuh/wazuh-kubernetes БЕЗ отпечатка .git на диске
+# ПОМЕТКА: по умолчанию — tarball с GitHub (нет remote, нет .git, нет credentials).
+#   WAZUH_K8S_FETCH_METHOD=tarball|git|skip
+#   work dir: /var/tmp/wazuh-kubernetes (см. WAZUH_K8S_WORKDIR)
+# -----------------------------------------------------------------------------
+_wazuh_k8s_tag_ref() {
+  # v4.9.2 → tags/v4.9.2 ; main → heads не используем — ждём тег
+  local tag="${WAZUH_K8S_TAG:-v4.9.2}"
+  echo "${tag}"
+}
+
+fetch_wazuh_kubernetes_tarball() {
+  local work="$1"
+  local tag
+  tag="$(_wazuh_k8s_tag_ref)"
+  local url="https://github.com/wazuh/wazuh-kubernetes/archive/refs/tags/${tag}.tar.gz"
+  local tmp
+  tmp="$(mktemp /var/tmp/wazuh-k8s-XXXXXX.tar.gz)"
+  log "Скачивание upstream Wazuh (tarball, без .git): ${url}"
+  if ! curl -fsSL "${url}" -o "${tmp}"; then
+    rm -f "${tmp}"
+    return 1
+  fi
+  rm -rf "${work}"
+  mkdir -p "${work}"
+  # archive root: wazuh-kubernetes-4.9.2/ (без префикса v в имени каталога часто)
+  if ! tar -xzf "${tmp}" -C "${work}" --strip-components=1; then
+    rm -f "${tmp}"
+    return 1
+  fi
+  rm -f "${tmp}"
+  # страховка: никогда не оставляем .git от tarball (его там и нет)
+  rm -rf "${work}/.git"
+  log "Upstream Wazuh распакован в ${work} (без .git)"
+  return 0
+}
+
+fetch_wazuh_kubernetes_git() {
+  local work="$1"
+  ensure_git
+  command -v git >/dev/null 2>&1 || return 1
+  local tag
+  tag="$(_wazuh_k8s_tag_ref)"
+  log "Скачивание upstream Wazuh через git clone --depth 1 (ветка/тег ${tag})"
+  # ПОМЕТКА: URL только публичный https://... без токена в строке
+  if [[ -d "${work}/.git" ]]; then
+    log "Каталог ${work} уже с .git — обновление не делаем (идемпотентность)"
+  else
+    rm -rf "${work}"
+    git clone --depth 1 --branch "${tag}" "${WAZUH_K8S_GIT}" "${work}" || return 1
+  fi
+  # Снять отпечаток: remote + сам .git (на prod история upstream не нужна)
+  if [[ "${WAZUH_K8S_STRIP_GIT:-true}" == "true" ]]; then
+    rm -rf "${work}/.git"
+    log "Удалён ${work}/.git — отпечатка git remote на диске нет"
+  else
+    git -C "${work}" remote remove origin 2>/dev/null \
+      || git -C "${work}" remote set-url origin "https://github.com/wazuh/wazuh-kubernetes.git" 2>/dev/null \
+      || true
+    warn "WAZUH_K8S_STRIP_GIT=false — .git оставлен (только для отладки)"
+  fi
+  return 0
+}
+
+fetch_wazuh_kubernetes() {
+  local work="${WAZUH_K8S_WORKDIR:-/var/tmp/wazuh-kubernetes}"
+  local method="${WAZUH_K8S_FETCH_METHOD:-tarball}"
+
+  case "${method}" in
+    skip|none|local)
+      log "WAZUH_K8S_FETCH_METHOD=${method} — upstream не скачивается, только локальные manifests"
+      return 0
+      ;;
+    tarball|tar|archive)
+      if [[ -d "${work}" && ! -d "${work}/.git" && -f "${work}/README.md" ]]; then
+        log "Upstream уже есть без .git: ${work} — skip download"
+        return 0
+      fi
+      if fetch_wazuh_kubernetes_tarball "${work}"; then
+        return 0
+      fi
+      warn "Tarball upstream не скачался — пробуем git clone"
+      fetch_wazuh_kubernetes_git "${work}" || warn "Clone upstream failed — дальше только локальные manifests"
+      ;;
+    git|clone)
+      fetch_wazuh_kubernetes_git "${work}" || warn "Clone upstream failed — дальше только локальные manifests"
+      ;;
+    *)
+      die "Unknown WAZUH_K8S_FETCH_METHOD=${method} (tarball|git|skip)"
+      ;;
+  esac
 }
 
 apply_storage() {
@@ -126,16 +220,17 @@ render_and_apply_manifests() {
 }
 
 deploy_via_official_repo() {
-  ensure_git
-  local work="/var/tmp/wazuh-kubernetes"
-  if command -v git >/dev/null 2>&1; then
-    if [[ ! -d "${work}/.git" ]]; then
-      git clone --depth 1 --branch "${WAZUH_K8S_TAG}" "${WAZUH_K8S_GIT}" "${work}" \
-        || warn "Clone failed — falling back to local manifests only"
+  # ПОМЕТКА: момент скачивания репозитория Wazuh (wazuh-kubernetes).
+  # По умолчанию tarball → на диске нет .git и нет remote origin.
+  # Подробности: docs/wazuh-upstream-fetch.md
+  local work="${WAZUH_K8S_WORKDIR:-/var/tmp/wazuh-kubernetes}"
+  fetch_wazuh_kubernetes
+  if [[ -d "${work}/envs/single-node" ]] || [[ -d "${work}/wazuh" ]] || [[ -d "${work}" ]]; then
+    if [[ -d "${work}/.git" ]]; then
+      warn "Внимание: ${work}/.git всё ещё на диске (отпечаток git). Задайте WAZUH_K8S_STRIP_GIT=true"
+    else
+      log "Official upstream at ${work} (без .git) — дальше локальные hardened manifests"
     fi
-  fi
-  if [[ -d "${work}/envs/single-node" ]] || [[ -d "${work}/wazuh" ]]; then
-    log "Official repo present at ${work} — applying local hardened manifests (nodeSelector/taints)"
   fi
   apply_storage
   create_secrets

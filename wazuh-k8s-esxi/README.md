@@ -16,7 +16,8 @@
 (ВМ vs поды, CPU/RAM/диск на каждый под, схема размещения.)
 
 Установка на РЕД ОС / Astra → **[docs/os-redos-astra.md](docs/os-redos-astra.md)**  
-Доставка с GitHub без отпечатка (токен/`.git`) → **[docs/git-clone-clean.md](docs/git-clone-clean.md)**
+Доставка пакета Prod без отпечатка → **[docs/git-clone-clean.md](docs/git-clone-clean.md)**  
+Скачивание upstream **Wazuh** (`wazuh-kubernetes`) без `.git` → **[docs/wazuh-upstream-fetch.md](docs/wazuh-upstream-fetch.md)**
 
 ## Состав решения (6 ВМ)
 
@@ -61,7 +62,8 @@ wazuh-k8s-esxi/
 ├── docs/
 │   ├── pods-resources-simple.md   # ← начните здесь
 │   ├── os-redos-astra.md          # РЕД ОС 8 / Astra с нуля
-│   ├── git-clone-clean.md         # clone/tarball без токена на сервере
+│   ├── git-clone-clean.md         # доставка пакета Prod без токена/.git
+│   ├── wazuh-upstream-fetch.md    # скачивание wazuh-kubernetes без .git
 │   ├── architecture.md
 │   ├── network-security.md
 │   ├── disk-layout.md

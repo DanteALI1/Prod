@@ -13,5 +13,6 @@ sudo -E bash scripts/install.sh
 
 - Ресурсы по подам простым языком: [wazuh-k8s-esxi/docs/pods-resources-simple.md](wazuh-k8s-esxi/docs/pods-resources-simple.md)
 - Установка на РЕД ОС / Astra: [wazuh-k8s-esxi/docs/os-redos-astra.md](wazuh-k8s-esxi/docs/os-redos-astra.md)
-- Clone с GitHub без отпечатка: [wazuh-k8s-esxi/docs/git-clone-clean.md](wazuh-k8s-esxi/docs/git-clone-clean.md)
+- Доставка пакета Prod без отпечатка: [wazuh-k8s-esxi/docs/git-clone-clean.md](wazuh-k8s-esxi/docs/git-clone-clean.md)
+- Скачивание upstream Wazuh без `.git`: [wazuh-k8s-esxi/docs/wazuh-upstream-fetch.md](wazuh-k8s-esxi/docs/wazuh-upstream-fetch.md)
 - Полный пакет: [wazuh-k8s-esxi/README.md](wazuh-k8s-esxi/README.md)

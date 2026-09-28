@@ -84,17 +84,26 @@ sudo -E bash scripts/control-plane/install-control-plane.sh
 
 ## Порядок на обеих ОС (одинаковый)
 
+**Рекомендуется** общий скрипт с выбором роли в начале:
+
+```bash
+sudo -E bash scripts/install.sh                 # меню
+sudo -E bash scripts/install.sh --role worker   # без меню
+```
+
 | Шаг | Где | Команда |
 |-----|-----|---------|
-| 1 | `k8s-cp-01` | `sudo -E bash scripts/control-plane/install-control-plane.sh` |
+| 1 | `k8s-cp-01` | `sudo -E bash scripts/install.sh --role control-plane` |
 | 2 | Заполнить `KUBEADM_TOKEN` и `KUBEADM_HASH` в `cluster.env` (скрипт печатает готовые строки) |
-| 3 | worker-01, worker-02 | `sudo -E bash scripts/worker/install-worker.sh` |
-| 4 | indexer-01..03 | `sudo -E bash scripts/indexer/install-indexer.sh` |
-| 5 | CP | `sudo -E bash scripts/common/label-nodes.sh` |
-| 6 | CP | `sudo -E bash scripts/manager/install-manager.sh` |
-| 7 | CP | `sudo -E bash scripts/dashboard/install-dashboard.sh` |
-| 8 | CP | `sudo -E bash scripts/archiving/setup-archiving.sh` |
+| 3 | worker-01, worker-02 | `sudo -E bash scripts/install.sh --role worker` |
+| 4 | indexer-01..03 | `sudo -E bash scripts/install.sh --role indexer` |
+| 5 | CP | `sudo -E bash scripts/install.sh --role labels` |
+| 6 | CP | `sudo -E bash scripts/install.sh --role manager` |
+| 7 | CP | `sudo -E bash scripts/install.sh --role dashboard` |
+| 8 | CP | `sudo -E bash scripts/install.sh --role archiving` |
 | 9 | | `docs/checklist.md` |
+
+Прямые вызовы `scripts/<роль>/install-*.sh` по-прежнему работают.
 
 Логи: `/var/log/wazuh-k8s-install/`.
 

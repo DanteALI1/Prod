@@ -143,8 +143,9 @@ Indexer-ВМ ставьте на **разные физические хосты 
 ## 6. Порядок включения (одна строка на шаг)
 
 1. Создать 6 ВМ, поставить РЕД ОС 8 **или** Astra, прописать IP в `cluster.env` и `/etc/hosts`.
-2. На `k8s-cp-01`: `install-control-plane.sh` → сохранить TOKEN и HASH.
-3. На worker-01/02: `install-worker.sh`.
-4. На indexer-01/02/03: `install-indexer.sh`.
-5. С CP: `label-nodes.sh` → `install-manager.sh` → `install-dashboard.sh` → `setup-archiving.sh`.
-6. Пройти `docs/checklist.md`.
+2. На каждой ВМ: `sudo -E bash scripts/install.sh` и выбрать роль (или `--role …`).
+3. На `k8s-cp-01`: роль `control-plane` → сохранить TOKEN и HASH.
+4. На worker-01/02: роль `worker`.
+5. На indexer-01/02/03: роль `indexer`.
+6. С CP: `labels` → `manager` → `dashboard` → `archiving`.
+7. Пройти `docs/checklist.md`.

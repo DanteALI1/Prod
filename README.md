@@ -4,6 +4,9 @@ Production deployment package for **Wazuh on Kubernetes (VMware ESXi)**.
 
 Целевые ОС: **РЕД ОС 8**, **Astra Linux** (серверы с нуля).
 
+**Wazuh без Kubernetes (distributed / multi-node на РЕД ОС 8):**  
+[docs/wazuh-redos8-distributed-install.md](docs/wazuh-redos8-distributed-install.md)
+
 **Установка на пустой сервер** — общий скрипт с выбором роли/пода:
 
 ```bash

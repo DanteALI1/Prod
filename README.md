@@ -7,6 +7,12 @@ Production deployment package for **Wazuh on Kubernetes (VMware ESXi)**.
 **Wazuh без Kubernetes (distributed / multi-node на РЕД ОС 8):**  
 [docs/wazuh-redos8-distributed-install.md](docs/wazuh-redos8-distributed-install.md)
 
+Интерактивный установщик (меню, ввод IP/имён, статус, креды в файл):
+
+```bash
+sudo bash scripts/wazuh-distributed-redos8/install.sh
+```
+
 **Установка на пустой сервер** — общий скрипт с выбором роли/пода:
 
 ```bash

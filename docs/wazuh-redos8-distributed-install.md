@@ -49,7 +49,9 @@ sudo bash scripts/wazuh-distributed-redos8/install.sh
 
 `/root/wazuh-install/wazuh-credentials.txt` (права `600`).
 
-Под капотом вызывает официальный `wazuh-install.sh` с флагами `-g` / `-wi` / `-s` / `-ws` / `-wd` (синонимы `--generate-config-files`, `--wazuh-indexer`, `--start-cluster`, `--wazuh-server`, `--wazuh-dashboard`).
+**Пункт 15** — удалённая установка по SSH: список серверов из `config.yml`, выбор узла и роли (или весь кластер по порядку). Нужен SSH-ключ без пароля (`ssh-copy-id`).
+
+Под капотом вызывает официальный `wazuh-install.sh` с флагами `-g` / `-wi` / `-s` / `-ws` / `-wd`.
 
 ---
 
